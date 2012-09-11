@@ -364,7 +364,7 @@ static int hist_entry__fprintf(struct hist_entry *he, size_t size,
 
 	ret = fprintf(fp, "%s\n", bf);
 
-	if (symbol_conf.use_callchain)
+	if (symbol_conf.use_callchain && !symbol_conf.cumulate_callchain)
 		ret += hist_entry__callchain_fprintf(he, hists, fp);
 
 	return ret;
