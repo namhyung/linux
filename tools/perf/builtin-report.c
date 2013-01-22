@@ -78,7 +78,9 @@ static int report__config(const char *var, const char *value, void *cb)
 			symbol_conf.filter_relative = false;
 		else
 			return -1;
-
+	}
+	if (!strcmp(var, "report.children")) {
+		symbol_conf.cumulate_callchain = perf_config_bool(var, value);
 		return 0;
 	}
 
