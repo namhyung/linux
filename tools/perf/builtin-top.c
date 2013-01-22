@@ -87,6 +87,16 @@ static void perf_top__sig_winch(int sig __maybe_unused,
 	perf_top__update_print_entries(top);
 }
 
+static int top__config(const char *var, const char *value, void *cb)
+{
+	if (!strcmp(var, "top.children")) {
+		symbol_conf.cumulate_callchain = perf_config_bool(var, value);
+		return 0;
+	}
+
+	return perf_default_config(var, value, cb);
+}
+
 static int perf_top__parse_source(struct perf_top *top, struct hist_entry *he)
 {
 	struct symbol *sym;
@@ -1124,6 +1134,8 @@ int cmd_top(int argc, const char **argv, const char *prefix __maybe_unused)
 	top.evlist = perf_evlist__new();
 	if (top.evlist == NULL)
 		return -ENOMEM;
+
+	perf_config(top__config, &top);
 
 	argc = parse_options(argc, argv, options, top_usage, 0);
 	if (argc)
