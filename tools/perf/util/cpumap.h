@@ -14,6 +14,7 @@ struct cpu_map *cpu_map__dummy_new(void);
 void cpu_map__delete(struct cpu_map *map);
 struct cpu_map *cpu_map__read(FILE *file);
 size_t cpu_map__fprintf(struct cpu_map *map, FILE *fp);
+size_t cpu_map__sprintf(struct cpu_map *map, char *buf);
 int cpu_map__get_socket(struct cpu_map *map, int idx);
 int cpu_map__get_core(struct cpu_map *map, int idx);
 int cpu_map__build_socket_map(struct cpu_map *cpus, struct cpu_map **sockp);

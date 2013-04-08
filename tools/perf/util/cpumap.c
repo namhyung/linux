@@ -187,6 +187,51 @@ size_t cpu_map__fprintf(struct cpu_map *map, FILE *fp)
 	return printed + fprintf(fp, "\n");
 }
 
+static char hex_char(char val)
+{
+	if (0 <= val && val <= 9)
+		return val + '0';
+	if (10 <= val && val < 16)
+		return val - 10 + 'a';
+	return '?';
+}
+
+size_t cpu_map__sprintf(struct cpu_map *map, char *buf)
+{
+	int i, cpu;
+	char *ptr = buf;
+	unsigned char *bitmap;
+	int last_cpu = map->map[map->nr - 1];
+
+	bitmap = zalloc((last_cpu + 7) / 8);
+	if (bitmap == NULL) {
+		buf[0] = '\0';
+		return 0;
+	}
+
+	for (i = 0; i < map->nr; i++) {
+		cpu = map->map[i];
+		bitmap[cpu / 8] |= 1 << (cpu % 8);
+	}
+
+	for (cpu = last_cpu / 4 * 4; cpu >= 0; cpu -= 4) {
+		unsigned char bits = bitmap[cpu / 8];
+
+		if (cpu % 8)
+			bits >>= 4;
+		else
+			bits &= 0xf;
+
+		*ptr++ = hex_char(bits);
+		if ((cpu % 32) == 0 && cpu > 0)
+			*ptr++ = ',';
+	}
+	*ptr++ = '\0';
+
+	free(bitmap);
+	return ptr - buf;
+}
+
 struct cpu_map *cpu_map__dummy_new(void)
 {
 	struct cpu_map *cpus = malloc(sizeof(*cpus) + sizeof(int));
