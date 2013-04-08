@@ -171,19 +171,13 @@ static int reset_tracing_cpu(void)
 	return 0;
 }
 
-static int __cmd_ftrace(struct perf_ftrace *ftrace, int argc, const char **argv)
+static int do_ftrace_live(struct perf_ftrace *ftrace)
 {
 	char *trace_file;
 	int trace_fd;
 	char buf[4096];
-	struct pollfd pollfd = {
-		.events = POLLIN,
-	};
-
-	if (geteuid() != 0) {
-		pr_err("ftrace only works for root!\n");
-		return -1;
-	}
+	/* sleep 1ms if no data read */
+	struct timespec req = { .tv_nsec = 1000000 };
 
 	signal(SIGINT, sig_handler);
 	signal(SIGUSR1, sig_handler);
@@ -195,12 +189,6 @@ static int __cmd_ftrace(struct perf_ftrace *ftrace, int argc, const char **argv)
 	/* reset ftrace buffer */
 	if (write_tracing_file("trace", "0") < 0)
 		goto out;
-
-	if (argc && perf_evlist__prepare_workload(ftrace->evlist,
-						  &ftrace->target,
-						  argv, false, true) < 0) {
-		goto out;
-	}
 
 	if (set_tracing_pid(ftrace) < 0) {
 		pr_err("failed to set ftrace pid\n");
@@ -233,7 +221,6 @@ static int __cmd_ftrace(struct perf_ftrace *ftrace, int argc, const char **argv)
 	}
 
 	fcntl(trace_fd, F_SETFL, O_NONBLOCK);
-	pollfd.fd = trace_fd;
 
 	if (write_tracing_file("tracing_on", "1") < 0) {
 		pr_err("can't enable tracing\n");
@@ -243,16 +230,18 @@ static int __cmd_ftrace(struct perf_ftrace *ftrace, int argc, const char **argv)
 	perf_evlist__start_workload(ftrace->evlist);
 
 	while (!done) {
-		if (poll(&pollfd, 1, -1) < 0)
-			break;
+		int n = read(trace_fd, buf, sizeof(buf));
 
-		if (pollfd.revents & POLLIN) {
-			int n = read(trace_fd, buf, sizeof(buf));
-			if (n < 0)
+		if (n < 0) {
+			if (errno == EINTR || errno == EAGAIN)
+				goto sleep;
+			else
 				break;
-			if (fwrite(buf, n, 1, stdout) != 1)
-				break;
-		}
+		} else if (n == 0) {
+sleep:
+			clock_nanosleep(CLOCK_MONOTONIC, 0, &req, NULL);
+		} else if (fwrite(buf, n, 1, stdout) != 1)
+			break;
 	}
 
 	write_tracing_file("tracing_on", "0");
@@ -274,6 +263,69 @@ out:
 	return done ? 0 : -1;
 }
 
+static int
+__cmd_ftrace_live(struct perf_ftrace *ftrace, int argc, const char **argv)
+{
+	int ret = -1;
+	const char * const live_usage[] = {
+		"perf ftrace live [<options>] [<command>]",
+		"perf ftrace live [<options>] -- <command> [<options>]",
+		NULL
+	};
+	const struct option live_options[] = {
+	OPT_STRING('t', "tracer", &ftrace->tracer, "tracer",
+		   "tracer to use: function_graph or function"),
+	OPT_STRING('p', "pid", &ftrace->target.pid, "pid",
+		   "trace on existing process id"),
+	OPT_INCR('v', "verbose", &verbose,
+		 "be more verbose"),
+	OPT_BOOLEAN('a', "all-cpus", &ftrace->target.system_wide,
+		    "system-wide collection from all CPUs"),
+	OPT_STRING('C', "cpu", &ftrace->target.cpu_list, "cpu",
+		    "list of cpus to monitor"),
+	OPT_END()
+	};
+
+	argc = parse_options(argc, argv, live_options, live_usage,
+			     PARSE_OPT_STOP_AT_NON_OPTION);
+	if (!argc && perf_target__none(&ftrace->target))
+		usage_with_options(live_usage, live_options);
+
+	ret = perf_target__validate(&ftrace->target);
+	if (ret) {
+		char errbuf[512];
+
+		perf_target__strerror(&ftrace->target, ret, errbuf, 512);
+		pr_err("%s\n", errbuf);
+		return -EINVAL;
+	}
+
+	ftrace->evlist = perf_evlist__new();
+	if (ftrace->evlist == NULL)
+		return -ENOMEM;
+
+	ret = perf_evlist__create_maps(ftrace->evlist, &ftrace->target);
+	if (ret < 0)
+		goto out;
+
+	if (ftrace->tracer == NULL)
+		ftrace->tracer = DEFAULT_TRACER;
+
+	if (argc && perf_evlist__prepare_workload(ftrace->evlist,
+						  &ftrace->target,
+						  argv, false, true) < 0)
+		goto out_maps;
+
+	ret = do_ftrace_live(ftrace);
+
+out_maps:
+	perf_evlist__delete_maps(ftrace->evlist);
+out:
+	perf_evlist__delete(ftrace->evlist);
+
+	return ret;
+}
+
 int cmd_ftrace(int argc, const char **argv, const char *prefix __maybe_unused)
 {
 	int ret;
@@ -281,54 +333,29 @@ int cmd_ftrace(int argc, const char **argv, const char *prefix __maybe_unused)
 		.target = { .uid = UINT_MAX, },
 	};
 	const char * const ftrace_usage[] = {
-		"perf ftrace [<options>] [<command>]",
-		"perf ftrace [<options>] -- <command> [<options>]",
+		"perf ftrace {live} [<options>] [<command>]",
+		"perf ftrace {live} [<options>] -- <command> [<options>]",
 		NULL
 	};
 	const struct option ftrace_options[] = {
-	OPT_STRING('t', "tracer", &ftrace.tracer, "tracer",
-		   "tracer to use: function_graph or function"),
-	OPT_STRING('p', "pid", &ftrace.target.pid, "pid",
-		   "trace on existing process id"),
-	OPT_INCR('v', "verbose", &verbose,
-		 "be more verbose"),
-	OPT_BOOLEAN('a', "all-cpus", &ftrace.target.system_wide,
-		    "system-wide collection from all CPUs"),
-	OPT_STRING('C', "cpu", &ftrace.target.cpu_list, "cpu",
-		    "list of cpus to monitor"),
 	OPT_END()
 	};
 
 	argc = parse_options(argc, argv, ftrace_options, ftrace_usage,
-			    PARSE_OPT_STOP_AT_NON_OPTION);
-	if (!argc && perf_target__none(&ftrace.target))
+			     PARSE_OPT_STOP_AT_NON_OPTION);
+	if (!argc)
 		usage_with_options(ftrace_usage, ftrace_options);
 
-	ret = perf_target__validate(&ftrace.target);
-	if (ret) {
-		char errbuf[512];
-
-		perf_target__strerror(&ftrace.target, ret, errbuf, 512);
-		pr_err("%s\n", errbuf);
-		return -EINVAL;
+	if (geteuid() != 0) {
+		pr_err("ftrace only works for root!\n");
+		return -1;
 	}
 
-	ftrace.evlist = perf_evlist__new();
-	if (ftrace.evlist == NULL)
-		return -ENOMEM;
-
-	ret = perf_evlist__create_maps(ftrace.evlist, &ftrace.target);
-	if (ret < 0)
-		goto out_delete_evlist;
-
-	if (ftrace.tracer == NULL)
-		ftrace.tracer = DEFAULT_TRACER;
-
-	ret = __cmd_ftrace(&ftrace, argc, argv);
-
-	perf_evlist__delete_maps(ftrace.evlist);
-out_delete_evlist:
-	perf_evlist__delete(ftrace.evlist);
+	if (strcmp(argv[0], "live") == 0) {
+		ret = __cmd_ftrace_live(&ftrace, argc, argv);
+	} else {
+		usage_with_options(ftrace_usage, ftrace_options);
+	}
 
 	return ret;
 }
