@@ -343,6 +343,31 @@ static int read_event_files(struct pevent *pevent)
 	return 0;
 }
 
+static int read_saved_cmdline(struct pevent *pevent)
+{
+	unsigned long long size;
+	char *buf;
+
+	/* it can have 0 size */
+	size = read8(pevent);
+	if (!size)
+		return 0;
+
+	buf = malloc(size + 1);
+	if (buf == NULL)
+		return -1;
+
+	if (do_read(buf, size) < 0) {
+		free(buf);
+		return -1;
+	}
+
+	parse_saved_cmdline(pevent, buf, size);
+
+	free(buf);
+	return 0;
+}
+
 ssize_t trace_report(int fd, struct pevent **ppevent, bool __repipe)
 {
 	char buf[BUFSIZ];
@@ -383,10 +408,11 @@ ssize_t trace_report(int fd, struct pevent **ppevent, bool __repipe)
 		return -1;
 	if (show_version)
 		printf("version = %s\n", version);
-	free(version);
 
-	if (do_read(buf, 1) < 0)
+	if (do_read(buf, 1) < 0) {
+		free(version);
 		return -1;
+	}
 	file_bigendian = buf[0];
 	host_bigendian = bigendian();
 
@@ -422,6 +448,11 @@ ssize_t trace_report(int fd, struct pevent **ppevent, bool __repipe)
 	err = read_ftrace_printk(pevent);
 	if (err)
 		goto out;
+	if (!strcmp(version, "0.6")) {
+		err = read_saved_cmdline(pevent);
+		if (err)
+			goto out;
+	}
 
 	size = trace_data_size;
 	repipe = false;
@@ -438,5 +469,6 @@ ssize_t trace_report(int fd, struct pevent **ppevent, bool __repipe)
 out:
 	if (pevent)
 		pevent_free(pevent);
+	free(version);
 	return size;
 }
