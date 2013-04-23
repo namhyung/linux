@@ -1413,10 +1413,59 @@ out:
 	return ret;
 }
 
+static int ftrace_setup(struct perf_ftrace *ftrace, int argc, const char **argv)
+{
+	int ret;
+	char errbuf[512];
+
+	ret = perf_target__validate(&ftrace->target);
+	if (ret) {
+		perf_target__strerror(&ftrace->target, ret, errbuf, 512);
+		pr_err("%s\n", errbuf);
+		return -EINVAL;
+	}
+
+	ftrace->evlist = perf_evlist__new();
+	if (ftrace->evlist == NULL)
+		return -ENOMEM;
+
+	ret = perf_evlist__create_maps(ftrace->evlist, &ftrace->target);
+	if (ret < 0)
+		goto out;
+
+	if (ftrace->tracer == NULL)
+		ftrace->tracer = DEFAULT_TRACER;
+
+	if (ftrace->dirname == NULL)
+		ftrace->dirname = DEFAULT_DIRNAME;
+
+	if (argc) {
+		ret = perf_evlist__prepare_workload(ftrace->evlist,
+						    &ftrace->target,
+						    argv, false, true);
+		if (ret < 0)
+			goto out_maps;
+	}
+	return 0;
+
+out_maps:
+	perf_evlist__delete_maps(ftrace->evlist);
+out:
+	perf_evlist__delete(ftrace->evlist);
+
+	return ret;
+}
+
+static void ftrace_teardown(struct perf_ftrace *ftrace)
+{
+	perf_evlist__delete_maps(ftrace->evlist);
+	perf_evlist__delete(ftrace->evlist);
+}
+
 static int
 __cmd_ftrace_live(struct perf_ftrace *ftrace, int argc, const char **argv)
 {
-	int ret = -1;
+	int ret;
 	const char * const live_usage[] = {
 		"perf ftrace live [<options>] [<command>]",
 		"perf ftrace live [<options>] -- <command> [<options>]",
@@ -1441,47 +1490,22 @@ __cmd_ftrace_live(struct perf_ftrace *ftrace, int argc, const char **argv)
 	if (!argc && perf_target__none(&ftrace->target))
 		usage_with_options(live_usage, live_options);
 
-	ret = perf_target__validate(&ftrace->target);
-	if (ret) {
-		char errbuf[512];
-
-		perf_target__strerror(&ftrace->target, ret, errbuf, 512);
-		pr_err("%s\n", errbuf);
-		return -EINVAL;
-	}
-
-	ftrace->evlist = perf_evlist__new();
-	if (ftrace->evlist == NULL)
-		return -ENOMEM;
-
-	ret = perf_evlist__create_maps(ftrace->evlist, &ftrace->target);
+	ret = ftrace_setup(ftrace, argc, argv);
 	if (ret < 0)
-		goto out;
-
-	if (ftrace->tracer == NULL)
-		ftrace->tracer = DEFAULT_TRACER;
-
-	if (argc && perf_evlist__prepare_workload(ftrace->evlist,
-						  &ftrace->target,
-						  argv, false, true) < 0)
-		goto out_maps;
+		return ret;
 
 	setup_pager();
 
 	ret = do_ftrace_live(ftrace);
 
-out_maps:
-	perf_evlist__delete_maps(ftrace->evlist);
-out:
-	perf_evlist__delete(ftrace->evlist);
-
+	ftrace_teardown(ftrace);
 	return ret;
 }
 
 static int
 __cmd_ftrace_record(struct perf_ftrace *ftrace, int argc, const char **argv)
 {
-	int ret = -1;
+	int ret;
 	const char * const record_usage[] = {
 		"perf ftrace record [<options>] [<command>]",
 		"perf ftrace record [<options>] -- <command> [<options>]",
@@ -1508,48 +1532,20 @@ __cmd_ftrace_record(struct perf_ftrace *ftrace, int argc, const char **argv)
 	if (!argc && perf_target__none(&ftrace->target))
 		usage_with_options(record_usage, record_options);
 
-	ret = perf_target__validate(&ftrace->target);
-	if (ret) {
-		char errbuf[512];
-
-		perf_target__strerror(&ftrace->target, ret, errbuf, 512);
-		pr_err("%s\n", errbuf);
-		return -EINVAL;
-	}
-
-	ftrace->evlist = perf_evlist__new();
-	if (ftrace->evlist == NULL)
-		return -ENOMEM;
-
-	ret = perf_evlist__create_maps(ftrace->evlist, &ftrace->target);
+	ret = ftrace_setup(ftrace, argc, argv);
 	if (ret < 0)
-		goto out;
-
-	if (ftrace->tracer == NULL)
-		ftrace->tracer = DEFAULT_TRACER;
-
-	if (ftrace->dirname == NULL)
-		ftrace->dirname = DEFAULT_DIRNAME;
-
-	if (argc && perf_evlist__prepare_workload(ftrace->evlist,
-						  &ftrace->target,
-						  argv, false, true) < 0)
-		goto out_maps;
+		return ret;
 
 	ret = do_ftrace_record(ftrace);
 
-out_maps:
-	perf_evlist__delete_maps(ftrace->evlist);
-out:
-	perf_evlist__delete(ftrace->evlist);
-
+	ftrace_teardown(ftrace);
 	return ret;
 }
 
 static int
 __cmd_ftrace_show(struct perf_ftrace *ftrace, int argc, const char **argv)
 {
-	int ret = -1;
+	int ret;
 	const char * const show_usage[] = {
 		"perf ftrace show [<options>]",
 		NULL
@@ -1569,41 +1565,22 @@ __cmd_ftrace_show(struct perf_ftrace *ftrace, int argc, const char **argv)
 	if (argc)
 		usage_with_options(show_usage, show_options);
 
-	ret = perf_target__validate(&ftrace->target);
-	if (ret) {
-		char errbuf[512];
-
-		perf_target__strerror(&ftrace->target, ret, errbuf, 512);
-		pr_err("%s\n", errbuf);
-		return -EINVAL;
-	}
-
-	ftrace->evlist = perf_evlist__new();
-	if (ftrace->evlist == NULL)
-		return -ENOMEM;
-
-	ret = perf_evlist__create_maps(ftrace->evlist, &ftrace->target);
+	ret = ftrace_setup(ftrace, argc, argv);
 	if (ret < 0)
-		goto out;
-
-	if (ftrace->dirname == NULL)
-		ftrace->dirname = DEFAULT_DIRNAME;
+		return ret;
 
 	setup_pager();
 
 	ret = do_ftrace_show(ftrace);
 
-	perf_evlist__delete_maps(ftrace->evlist);
-out:
-	perf_evlist__delete(ftrace->evlist);
-
+	ftrace_teardown(ftrace);
 	return ret;
 }
 
 static int
 __cmd_ftrace_report(struct perf_ftrace *ftrace, int argc, const char **argv)
 {
-	int ret = -1;
+	int ret;
 	const char * const report_usage[] = {
 		"perf ftrace report [<options>]",
 		NULL
@@ -1629,25 +1606,9 @@ __cmd_ftrace_report(struct perf_ftrace *ftrace, int argc, const char **argv)
 	if (argc)
 		usage_with_options(report_usage, report_options);
 
-	ret = perf_target__validate(&ftrace->target);
-	if (ret) {
-		char errbuf[512];
-
-		perf_target__strerror(&ftrace->target, ret, errbuf, 512);
-		pr_err("%s\n", errbuf);
-		return -EINVAL;
-	}
-
-	ftrace->evlist = perf_evlist__new();
-	if (ftrace->evlist == NULL)
-		return -ENOMEM;
-
-	ret = perf_evlist__create_maps(ftrace->evlist, &ftrace->target);
+	ret = ftrace_setup(ftrace, argc, argv);
 	if (ret < 0)
-		goto out;
-
-	if (ftrace->dirname == NULL)
-		ftrace->dirname = DEFAULT_DIRNAME;
+		return ret;
 
 	perf_hpp__init();
 
@@ -1660,10 +1621,7 @@ __cmd_ftrace_report(struct perf_ftrace *ftrace, int argc, const char **argv)
 
 	ret = do_ftrace_report(ftrace);
 
-	perf_evlist__delete_maps(ftrace->evlist);
-out:
-	perf_evlist__delete(ftrace->evlist);
-
+	ftrace_teardown(ftrace);
 	return ret;
 }
 
