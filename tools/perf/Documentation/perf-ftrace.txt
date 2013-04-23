@@ -1,0 +1,117 @@
+perf-ftrace(1)
+==============
+
+NAME
+----
+perf-ftrace - A front end for kernel's ftrace
+
+SYNOPSIS
+--------
+[verse]
+'perf ftrace' {live|record} [<options>] [<command>]
+'perf ftrace' {show|report} [<options>]
+
+DESCRIPTION
+-----------
+This command reads the ftrace buffer and displays the trace recorded.
+
+There are several variants of perf ftrace:
+
+  'perf ftrace live <command>' to see a live trace of kernel functions
+  via trace_pipe during executing the <command>.  If <command> is not
+  specified, one of the target options (-p, -a or -C) should be given.
+  It just prints out the result to stdout and doesn't save any files.
+
+  'perf ftrace record <command>' to record trace entries of kernel
+  functions during the execution of the <command>.  Like 'perf ftrace
+  live', at least one of <command> and/or target options should be
+  given in order to start recording.  The recorded results are saved
+  under a directory ('perf.data.dir' by default) and will be used by
+  other perf-ftrace tools like 'show' and 'report'.
+
+  'perf ftrace show' to see the trace of recorded functions.  It shows
+  functions sorted by time so the end result might be interspersed if
+  there's a concurrent execution.
+
+  'perf ftrace report' to display the result in an usual perf-report
+  style - entries are sorted by given sort keys and output is resorted
+  by its overhead.
+
+OPTIONS
+-------
+<command>...::
+	Any command you can specify in a shell.
+
+-t::
+--tracer=::
+	The ftrace tracer to be used (default: function_graph).
+	Currently, only 'function' and 'function_graph' are supported
+	by 'record' command. 'live' command accepts any available
+	tracer in system and outputs trace result directly from the
+	ftrace's trace_pipe.
+
+-p::
+--pid=::
+	Record events on existing process ID (comma separated list).
+	Used by 'live' and 'record' subcommands only.
+
+-a::
+--all-cpus::
+	Force system-wide collection.  Scripts run without a <command>
+	normally use -a by default, while scripts run with a <command>
+	normally don't - this option allows the latter to be run in
+	system-wide mode.  Used by 'live' and 'record' subcommands only.
+
+-C::
+--cpu:: Only process samples for the list of CPUs provided.
+	Multiple CPUs can be provided as a comma-separated list with
+	no space: 0,1. Ranges of CPUs are specified with -: 0-2.
+	Default is to report samples on all online CPUs.
+
+-s::
+--sort=::
+	Sort histogram entries by given key(s) - multiple keys can be
+	specified in CSV format.  Following sort keys are available:
+	pid, comm, dso, symbol, cpu.
+
+	Each key has following meaning:
+
+	- comm: command (name) of the task
+	- pid: command and tid of the task
+	- dso: name of library or module executed at the time of sample
+	- symbol: name of function executed at the time of sample
+	- cpu: cpu number the task ran at the time of sample
+
+	By default, comm, dso and symbol keys are used.
+	(i.e. --sort comm,dso,symbol)
+	Used by 'report' subcommands only.
+
+-i::
+--input=::
+	Input directory name excluding '.dir' at the end.
+	(default: perf.data)
+
+-o::
+--output=::
+	Output directory name excluding '.dir' at the end.
+	(default: perf.data)
+
+-v::
+--verbose::
+	Be more verbose (show counter open errors, etc).
+
+-D::
+--dump-raw-trace::
+	Dump raw trace in ASCII.  Used by 'report' subcommands only.
+
+-I::
+--show-info::
+	Display extended information about the record.  This adds
+	information which may be very large and thus may clutter the
+	display.  It currently includes: cpu and numa topology of the
+	host system.  It can only be used with the 'report' subcommand.
+
+SEE ALSO
+--------
+linkperf:perf-record[1], linkperf:perf-report[1],
+linkperf:perf-script[1]
