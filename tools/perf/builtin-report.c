@@ -53,6 +53,7 @@ struct perf_report {
 	const char		*cpu_list;
 	const char		*symbol_filter_str;
 	float			min_percent;
+	u64			time_start, time_end;
 	DECLARE_BITMAP(cpu_bitmap, MAX_NR_CPUS);
 };
 
@@ -316,6 +317,12 @@ static int process_sample_event(struct perf_tool *tool,
 		return 0;
 
 	if (rep->cpu_list && !test_bit(sample->cpu, rep->cpu_bitmap))
+		return 0;
+
+	if (rep->time_start && rep->time_start > sample->time)
+		return 0;
+
+	if (rep->time_end && rep->time_end < sample->time)
 		return 0;
 
 	if (sort__mode == SORT_MODE__BRANCH) {
@@ -714,6 +721,24 @@ parse_percent_limit(const struct option *opt, const char *str,
 	return 0;
 }
 
+static int
+parse_time_filter(const struct option *opt, const char *str,
+		  int unset __maybe_unused)
+{
+	struct perf_report *rep = opt->value;
+	char *sep;
+
+	sep = strchr(str, '-');
+	if (sep == NULL)
+		return parse_nsec_time(str, &rep->time_start);
+	else if (sep == str)
+		return parse_nsec_time(++str, &rep->time_end);
+
+	*sep++ = '\0';
+	return parse_nsec_time(str, &rep->time_start) ||
+		parse_nsec_time(sep , &rep->time_end);
+}
+
 int cmd_report(int argc, const char **argv, const char *prefix __maybe_unused)
 {
 	struct perf_session *session;
@@ -825,6 +850,8 @@ int cmd_report(int argc, const char **argv, const char *prefix __maybe_unused)
 	OPT_BOOLEAN(0, "mem-mode", &report.mem_mode, "mem access profile"),
 	OPT_CALLBACK(0, "percent-limit", &report, "percent",
 		     "Don't show entries under that percent", parse_percent_limit),
+	OPT_CALLBACK('X', "time-filter", &report, "time[-time]",
+		     "Only display entries in the time range", parse_time_filter),
 	OPT_END()
 	};
 
