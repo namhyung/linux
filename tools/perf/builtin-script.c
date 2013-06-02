@@ -28,6 +28,13 @@ static bool			system_wide;
 static const char		*cpu_list;
 static DECLARE_BITMAP(cpu_bitmap, MAX_NR_CPUS);
 
+struct time_range {
+	u64 start;
+	u64 end;
+};
+
+static struct time_range trange;
+
 enum perf_output_field {
 	PERF_OUTPUT_COMM            = 1U << 0,
 	PERF_OUTPUT_TID             = 1U << 1,
@@ -508,6 +515,12 @@ static int process_sample_event(struct perf_tool *tool __maybe_unused,
 		return 0;
 
 	if (cpu_list && !test_bit(sample->cpu, cpu_bitmap))
+		return 0;
+
+	if (trange.start && trange.start > sample->time)
+		return 0;
+
+	if (trange.end && trange.end < sample->time)
 		return 0;
 
 	scripting_ops->process_event(event, sample, evsel, machine, &al);
@@ -1236,6 +1249,23 @@ static int have_cmd(int argc, const char **argv)
 	return 0;
 }
 
+static int
+parse_time_filter(const struct option *opt, const char *str,
+		  int unset __maybe_unused)
+{
+	struct time_range *time_range = opt->value;
+	char *sep = strchr(str, '-');
+
+	if (sep == NULL)
+		return parse_nsec_time(str, &time_range->start);
+	else if (sep == str)
+		return parse_nsec_time(++str, &time_range->end);
+
+	*sep++ = '\0';
+	return parse_nsec_time(str, &time_range->start) ||
+		parse_nsec_time(sep, &time_range->end);
+}
+
 int cmd_script(int argc, const char **argv, const char *prefix __maybe_unused)
 {
 	bool show_full_info = false;
@@ -1286,6 +1316,8 @@ int cmd_script(int argc, const char **argv, const char *prefix __maybe_unused)
 		    "display extended information from perf.data file"),
 	OPT_BOOLEAN('\0', "show-kernel-path", &symbol_conf.show_kernel_path,
 		    "Show the path of [kernel.kallsyms]"),
+	OPT_CALLBACK('X', "time-filter", &trange, "time[-time]",
+		     "Only display entries in the time range", parse_time_filter),
 	OPT_END()
 	};
 	const char * const script_usage[] = {
