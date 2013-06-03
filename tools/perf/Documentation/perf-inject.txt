@@ -41,6 +41,13 @@ OPTIONS
 	tasks slept. sched_switch contains a callchain where a task slept and
 	sched_stat contains a timeslice how long a task slept.
 
+-X::
+--time-filter::
+	Display samples within a range of time only. A time range can be given
+	like 'time1-time2' and treated as a start time and an end time
+	respectively. The time format is like "<sec>.<usec>". Either of time1
+	or time2 can be omitted.
+
 SEE ALSO
 --------
 linkperf:perf-record[1], linkperf:perf-report[1], linkperf:perf-archive[1]

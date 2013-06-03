@@ -28,6 +28,7 @@ struct perf_inject {
 	int		 pipe_output,
 			 output;
 	u64		 bytes_written;
+	u64		 time_start, time_end;
 	struct list_head samples;
 };
 
@@ -112,6 +113,14 @@ static int perf_event__repipe_sample(struct perf_tool *tool,
 				     struct perf_evsel *evsel,
 				     struct machine *machine)
 {
+	struct perf_inject *inject = container_of(tool, struct perf_inject, tool);
+
+	if (inject->time_start && inject->time_start > sample->time)
+		return 0;
+
+	if (inject->time_end && inject->time_end < sample->time)
+		return 0;
+
 	if (evsel->handler.func) {
 		inject_handler f = evsel->handler.func;
 		return f(tool, event, sample, evsel, machine);
@@ -206,6 +215,13 @@ static int perf_event__inject_buildid(struct perf_tool *tool,
 	struct addr_location al;
 	struct thread *thread;
 	u8 cpumode;
+	struct perf_inject *inject = container_of(tool, struct perf_inject, tool);
+
+	if (inject->time_start && inject->time_start > sample->time)
+		return 0;
+
+	if (inject->time_end && inject->time_end < sample->time)
+		return 0;
 
 	cpumode = event->header.misc & PERF_RECORD_MISC_CPUMODE_MASK;
 
@@ -393,6 +409,23 @@ static int __cmd_inject(struct perf_inject *inject)
 	return ret;
 }
 
+static int
+parse_time_filter(const struct option *opt, const char *str,
+		  int unset __maybe_unused)
+{
+	struct perf_inject *inject = opt->value;
+	char *sep = strchr(str, '-');
+
+	if (sep == NULL)
+		return parse_nsec_time(str, &inject->time_start);
+	else if (sep == str)
+		return parse_nsec_time(++str, &inject->time_end);
+
+	*sep++ = '\0';
+	return parse_nsec_time(str, &inject->time_start) ||
+		parse_nsec_time(sep, &inject->time_end);
+}
+
 int cmd_inject(int argc, const char **argv, const char *prefix __maybe_unused)
 {
 	struct perf_inject inject = {
@@ -427,6 +460,8 @@ int cmd_inject(int argc, const char **argv, const char *prefix __maybe_unused)
 			    "where and how long tasks slept"),
 		OPT_INCR('v', "verbose", &verbose,
 			 "be more verbose (show build ids, etc)"),
+		OPT_CALLBACK('X', "time-filter", &inject, "time[-time]",
+			     "Only display entries in the time range", parse_time_filter),
 		OPT_END()
 	};
 	const char * const inject_usage[] = {
