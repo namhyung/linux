@@ -339,3 +339,92 @@ int perf_ftrace_event_register(struct ftrace_event_call *call,
 	return -EINVAL;
 }
 #endif /* CONFIG_FUNCTION_TRACER */
+
+int
+perf_ftrace_marker_call(unsigned long ip, void **map_page, int nr_pages,
+			int offset, int len)
+{
+	struct print_entry *entry;
+	struct hlist_head *head;
+	struct pt_regs regs;
+	char *buf;
+	int size;
+	int rctx;
+
+	size = sizeof(*entry) + len + 2; /* possible \n added */
+	size = ALIGN(size, sizeof(u64)) + sizeof(u32);
+
+	if(size > PERF_MAX_TRACE_SIZE) {
+		size = PERF_MAX_TRACE_SIZE - sizeof(u32);
+		len = min_t(int, len, size - sizeof(*entry) - 2);
+	}
+
+	perf_fetch_caller_regs(&regs);
+
+	entry = perf_trace_buf_prepare(size, TRACE_PRINT, NULL, &rctx);
+	if (!entry)
+		return -1;
+
+	entry->ip = ip;
+
+	*(unsigned int *)entry->buf = offsetof(struct print_entry, buf) + 4;
+	*(unsigned int *)entry->buf |= len << 16;
+
+	buf = entry->buf + 4;
+
+	if (nr_pages == 1) {
+		memcpy(buf, map_page[0] + offset, len);
+	} else {
+		int cnt = PAGE_SIZE - offset;
+
+		memcpy(buf, map_page[0] + offset, cnt);
+		memcpy(buf + cnt, map_page[1], len - cnt);
+	}
+
+	if (buf[len - 1] != '\n') {
+		buf[len] = '\n';
+		buf[len + 1] = '\0';
+	} else {
+		buf[len] = '\0';
+	}
+
+	head = this_cpu_ptr(event_print.perf_events);
+	perf_trace_buf_submit(entry, size, rctx, 0,
+			      1, &regs, head, NULL);
+	return 0;
+}
+
+bool perf_use_ftrace_marker;
+
+static void perf_ftrace_marker_enable(void *data)
+{
+	perf_use_ftrace_marker = true;
+}
+
+static void perf_ftrace_marker_disable(void *data)
+{
+	perf_use_ftrace_marker = false;
+}
+
+int perf_marker_event_register(struct ftrace_event_call *call,
+			       enum trace_reg type, void *data)
+{
+	switch (type) {
+	case TRACE_REG_REGISTER:
+	case TRACE_REG_UNREGISTER:
+		break;
+	case TRACE_REG_PERF_REGISTER:
+	case TRACE_REG_PERF_UNREGISTER:
+	case TRACE_REG_PERF_OPEN:
+	case TRACE_REG_PERF_CLOSE:
+		return 0;
+	case TRACE_REG_PERF_ADD:
+		perf_ftrace_marker_enable(data);
+		return 0;
+	case TRACE_REG_PERF_DEL:
+		perf_ftrace_marker_disable(data);
+		return 0;
+	}
+
+	return -EINVAL;
+}

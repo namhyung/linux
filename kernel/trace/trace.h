@@ -1062,4 +1062,10 @@ int perf_ftrace_event_register(struct ftrace_event_call *call,
 #define perf_ftrace_event_register NULL
 #endif
 
+#ifdef CONFIG_PERF_EVENTS
+int perf_marker_event_register(struct ftrace_event_call *call,
+			       enum trace_reg type, void *data);
+#else
+#define perf_marker_event_register NULL
+#endif
 #endif /* _LINUX_KERNEL_TRACE_H */

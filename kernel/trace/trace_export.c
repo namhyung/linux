@@ -53,6 +53,13 @@
 #undef F_printk
 #define F_printk(fmt, args...) fmt, args
 
+#undef __get_dynamic_array
+#define __get_dynamic_array(field) __entry->field
+
+#undef __get_str
+#define __get_str(field) (char *)__get_dynamic_array(field)
+
+
 #undef FTRACE_ENTRY
 #define FTRACE_ENTRY(name, struct_name, id, tstruct, print, filter)	\
 struct ____ftrace_##name {						\
@@ -121,9 +128,9 @@ static void __always_unused ____ftrace_check_##name(void)		\
 
 #undef __dynamic_array
 #define __dynamic_array(type, item)					\
-	ret = trace_define_field(event_call, #type, #item,		\
+	ret = trace_define_field(event_call, "__data_loc " #type "[]", #item,		\
 				 offsetof(typeof(field), item),		\
-				 0, is_signed_type(type), filter_type);\
+				 4, is_signed_type(type), filter_type);\
 	if (ret)							\
 		return ret;
 
@@ -163,6 +170,8 @@ ftrace_define_fields_##name(struct ftrace_event_call *event_call)	\
 
 #undef F_printk
 #define F_printk(fmt, args...) __stringify(fmt) ", "  __stringify(args)
+
+#undef __get_str
 
 #undef FTRACE_ENTRY_REG
 #define FTRACE_ENTRY_REG(call, struct_name, etype, tstruct, print, filter,\

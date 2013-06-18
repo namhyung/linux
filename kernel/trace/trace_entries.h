@@ -229,7 +229,7 @@ FTRACE_ENTRY(bprint, bprint_entry,
 	FILTER_OTHER
 );
 
-FTRACE_ENTRY(print, print_entry,
+FTRACE_ENTRY_REG(print, print_entry,
 
 	TRACE_PRINT,
 
@@ -239,9 +239,11 @@ FTRACE_ENTRY(print, print_entry,
 	),
 
 	F_printk("%pf: %s",
-		 (void *)__entry->ip, __entry->buf),
+		 (void *)__entry->ip, __get_str(buf)),
 
-	FILTER_OTHER
+	FILTER_OTHER,
+
+	perf_marker_event_register
 );
 
 FTRACE_ENTRY(bputs, bputs_entry,

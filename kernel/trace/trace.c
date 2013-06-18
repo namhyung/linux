@@ -4317,6 +4317,10 @@ tracing_free_buffer_release(struct inode *inode, struct file *filp)
 	return 0;
 }
 
+extern int perf_use_ftrace_marker;
+extern int perf_ftrace_marker_call(unsigned long ip, void **map_page, int nr_pages,
+				   int offset, int len);
+
 static ssize_t
 tracing_mark_write(struct file *filp, const char __user *ubuf,
 					size_t cnt, loff_t *fpos)
@@ -4378,6 +4382,16 @@ tracing_mark_write(struct file *filp, const char __user *ubuf,
 
 	for (i = 0; i < nr_pages; i++)
 		map_page[i] = kmap_atomic(pages[i]);
+
+	if (perf_use_ftrace_marker) {
+		if (!perf_ftrace_marker_call(_THIS_IP_, map_page, nr_pages,
+					     offset, cnt)) {
+			written = cnt;
+			*fpos += cnt;
+		} else
+			written = -EINVAL;
+		goto out_unlock;
+	}
 
 	local_save_flags(irq_flags);
 	size = sizeof(*entry) + cnt + 2; /* possible \n added */
