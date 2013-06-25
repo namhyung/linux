@@ -898,6 +898,27 @@ static struct pevent_record *get_ordered_record(struct perf_ftrace *ftrace);
 
 static struct event_format *fgraph_exit_event;
 
+static void
+print_graph_duration(struct trace_seq *s, struct event_format *event,
+		     struct pevent_record *record)
+{
+	unsigned long long duration;
+	unsigned long long rettime, calltime;
+	unsigned long usec, nsec;
+
+	if (pevent_get_field_val(s, event, "rettime", record, &rettime, 1))
+		return;
+
+	if (pevent_get_field_val(s, event, "calltime", record, &calltime, 1))
+		return;
+
+	duration = rettime - calltime;
+	usec = duration / 1000;
+	nsec = duration % 1000;
+
+	trace_seq_printf(s, "%3d) %3lu.%03lu us |  ", record->cpu, usec, nsec);
+}
+
 static int
 fgraph_ent_handler(struct trace_seq *s, struct pevent_record *record,
 		   struct event_format *event, void *context)
@@ -930,9 +951,14 @@ fgraph_ent_handler(struct trace_seq *s, struct pevent_record *record,
 	if (next && next->cpu == record->cpu &&
 	    pevent_data_type(event->pevent, next) == fgraph_exit_event->id) {
 		is_leaf = true;
+
+		print_graph_duration(s, fgraph_exit_event, next);
+
 		/* consume record */
 		get_ordered_record(ftrace);
 		free(next);
+	} else {
+		trace_seq_printf(s, "%3d) %*s |  ", record->cpu, 10, "");
 	}
 
 nested:
@@ -972,6 +998,8 @@ fgraph_ret_handler(struct trace_seq *s, struct pevent_record *record,
 {
 	unsigned long long depth;
 	int i;
+
+	print_graph_duration(s, event, record);
 
 	if (pevent_get_field_val(s, event, "depth", record, &depth, 1))
 		return trace_seq_putc(s, '!');
@@ -1284,9 +1312,12 @@ static int do_ftrace_show(struct perf_ftrace *ftrace)
 			continue;
 		}
 
-		pevent_print_event(ftrace->pevent, &seq, record);
-		trace_seq_do_printf(&seq);
+		if (!strcmp(ftrace->tracer, "function_graph"))
+			pevent_event_info(&seq, event, record);
+		else
+			pevent_print_event(ftrace->pevent, &seq, record);
 
+		trace_seq_do_printf(&seq);
 		trace_seq_reset(&seq);
 
 		free(record);
