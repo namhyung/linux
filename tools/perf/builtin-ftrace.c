@@ -893,34 +893,77 @@ function_handler(struct trace_seq *s, struct pevent_record *record,
 
 #define TRACE_GRAPH_INDENT  2
 
+static struct pevent_record *peek_ordered_record(struct perf_ftrace *ftrace);
+static struct pevent_record *get_ordered_record(struct perf_ftrace *ftrace);
+
+static struct event_format *fgraph_exit_event;
+
 static int
 fgraph_ent_handler(struct trace_seq *s, struct pevent_record *record,
-		   struct event_format *event, void *context __maybe_unused)
+		   struct event_format *event, void *context)
 {
 	unsigned long long depth;
 	unsigned long long val;
 	const char *func;
+	struct perf_ftrace *ftrace = context;
+	struct pevent_record *next;
+	bool is_leaf = false;
+	bool needs_free = false;
+	void *data;
+	int ret = -1;
 	int i;
 
+	/*
+	 * record->data can be invalidated after calling peek_ordered_record()
+	 * because it can unmap the current kbuffer page.  Make a copy.
+	 */
+	data = malloc(record->size);
+	if (data == NULL)
+		goto nested;
+
+	memcpy(data, record->data, record->size);
+	record->data = data;
+	needs_free = true;
+
+	/* detect leaf function and make it one-liner */
+	next = peek_ordered_record(ftrace);
+	if (next && next->cpu == record->cpu &&
+	    pevent_data_type(event->pevent, next) == fgraph_exit_event->id) {
+		is_leaf = true;
+		/* consume record */
+		get_ordered_record(ftrace);
+		free(next);
+	}
+
+nested:
 	if (pevent_get_field_val(s, event, "depth", record, &depth, 1))
-		return trace_seq_putc(s, '!');
+		goto out;
 
 	/* Function */
 	for (i = 0; i < (int)(depth * TRACE_GRAPH_INDENT); i++)
 		trace_seq_putc(s, ' ');
 
 	if (pevent_get_field_val(s, event, "func", record, &val, 1))
-		return trace_seq_putc(s, '!');
+		goto out;
 
 	func = pevent_find_function(event->pevent, val);
 
 	if (func)
-		trace_seq_printf(s, "%s() {", func);
+		trace_seq_printf(s, "%s()", func);
 	else
-		trace_seq_printf(s, "%llx() {", val);
+		trace_seq_printf(s, "%llx()", val);
 
-	trace_seq_putc(s, '\n');
-	return 0;
+	if (is_leaf)
+		trace_seq_puts(s, ";\n");
+	else
+		trace_seq_puts(s, " {\n");
+
+	ret = 0;
+out:
+	if (needs_free)
+		free(record->data);
+
+	return ret;
 }
 
 static int
@@ -1122,7 +1165,8 @@ get_ftrace_event_record(struct perf_ftrace *ftrace,
 	return fra->record;
 }
 
-static struct pevent_record *get_ordered_record(struct perf_ftrace *ftrace)
+static struct ftrace_report_arg *
+__get_ordered_record(struct perf_ftrace *ftrace)
 {
 	struct ftrace_report_arg *fra = NULL;
 	struct ftrace_report_arg *tmp;
@@ -1136,9 +1180,26 @@ static struct pevent_record *get_ordered_record(struct perf_ftrace *ftrace)
 			fra = tmp;
 		}
 	}
+	return fra;
+}
+
+static struct pevent_record *peek_ordered_record(struct perf_ftrace *ftrace)
+{
+	struct ftrace_report_arg *fra = __get_ordered_record(ftrace);
+
+	if (fra)
+		return fra->record;
+
+	return NULL;
+}
+
+static struct pevent_record *get_ordered_record(struct perf_ftrace *ftrace)
+{
+	struct ftrace_report_arg *fra = __get_ordered_record(ftrace);
 
 	if (fra) {
-		record = fra->record;
+		struct pevent_record *record = fra->record;
+
 		fra->record = NULL;
 		return record;
 	}
@@ -1194,16 +1255,20 @@ static int do_ftrace_show(struct perf_ftrace *ftrace)
 				      function_handler, NULL);
 	pevent_register_event_handler(ftrace->pevent, -1,
 				      "ftrace", "funcgraph_entry",
-				      fgraph_ent_handler, NULL);
+				      fgraph_ent_handler, ftrace);
 	pevent_register_event_handler(ftrace->pevent, -1,
 				      "ftrace", "funcgraph_exit",
-				      fgraph_ret_handler, NULL);
+				      fgraph_ret_handler, ftrace);
 
 	if (perf_session__process_events(session, &show.tool) < 0) {
 		pr_err("failed to process events\n");
 		ret = -1;
 		goto out;
 	}
+
+	fgraph_exit_event = pevent_find_event_by_name(ftrace->pevent, "ftrace",
+						     "funcgraph_exit");
+	BUG_ON(fgraph_exit_event == NULL);
 
 	trace_seq_init(&seq);
 
