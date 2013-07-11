@@ -30,14 +30,27 @@ static int			caller_lines = -1;
 
 static bool			raw_ip;
 
+#define KMEM_MODE_SLAB  1
+#define KMEM_MODE_PAGE  2
+static int			mode = -1;
+
 static int			*cpunode_map;
 static int			max_cpu_num;
 
 struct alloc_stat {
-	u64	call_site;
-	u64	ptr;
-	u64	bytes_req;
-	u64	bytes_alloc;
+	u64 call_site;
+	union {
+		struct {
+			u64	ptr;
+			u64	bytes_req;
+			u64	bytes_alloc;
+		};
+		struct {
+			u64	page;
+			u64	total_req;
+			u64	alloc_now;
+		};
+	};
 	u32	hit;
 	u32	pingpong;
 
@@ -50,6 +63,8 @@ static struct rb_root root_alloc_stat;
 static struct rb_root root_alloc_sorted;
 static struct rb_root root_caller_stat;
 static struct rb_root root_caller_sorted;
+static struct rb_root root_caller_page_stat;
+//static struct rb_root root_caller_page_sorted;
 
 static unsigned long total_requested, total_allocated;
 static unsigned long nr_allocs, nr_cross_allocs;
@@ -253,7 +268,10 @@ static struct alloc_stat *search_alloc_stat(unsigned long ptr,
 					    sort_fn_t sort_fn)
 {
 	struct rb_node *node = root->rb_node;
-	struct alloc_stat key = { .ptr = ptr, .call_site = call_site };
+	struct alloc_stat key;
+
+	key.ptr = ptr;
+	key.call_site = call_site;
 
 	while (node) {
 		struct alloc_stat *data;
@@ -296,6 +314,184 @@ static int perf_evsel__process_free_event(struct perf_evsel *evsel,
 	return 0;
 }
 
+struct chain {
+	unsigned long ip;
+	struct symbol *sym;
+};
+
+struct alloc_page_stat {
+	unsigned long page;
+	unsigned order;
+	unsigned nr_chain;
+
+	u32	hit;
+	u64	total_req;
+	u64	alloc_now;
+
+	struct rb_node node;
+	struct hlist_node hnode;
+	struct chain chain[];
+};
+
+static struct alloc_page_stat *
+insert_caller_page_stat(unsigned long page, unsigned order,
+			struct callchain_cursor_node **saved, unsigned nr_chain)
+{
+	struct rb_node **node = &root_caller_page_stat.rb_node;
+	struct rb_node *parent = NULL;
+	struct alloc_page_stat *data = NULL;
+	u64 alloc_size = 4096 << order;
+	bool found = false;
+
+	while (*node && !found) {
+		int cnt;
+
+		parent = *node;
+		data = rb_entry(*node, struct alloc_page_stat, node);
+
+		if (nr_chain != data->nr_chain) {
+			node = nr_chain > data->nr_chain ? &(*node)->rb_right :
+							   &(*node)->rb_left;
+			continue;
+		}
+
+		cnt = nr_chain;
+		while (cnt--) {
+			if (saved[cnt]->ip == data->chain[cnt].ip)
+				continue;
+			node = saved[cnt]->ip > data->chain[cnt].ip ?
+				&(*node)->rb_right : &(*node)->rb_left;
+			break;
+		}
+		if (cnt == -1)
+			found = true;
+	}
+
+	if (found) {
+		data->hit++;
+		data->total_req += alloc_size;
+		data->alloc_now += alloc_size;
+		return NULL;
+	} else {
+		data = malloc(sizeof(*data) + sizeof(struct chain) * nr_chain);
+		if (!data) {
+			pr_err("%s: malloc failed\n", __func__);
+			return NULL;
+		}
+
+		data->page = page;
+		data->order = order;
+		data->nr_chain = nr_chain;
+
+		data->hit = 1;
+		data->total_req = alloc_size;
+		data->alloc_now = alloc_size;
+
+		while (nr_chain--) {
+			data->chain[nr_chain].ip = saved[nr_chain]->ip;
+			data->chain[nr_chain].sym= saved[nr_chain]->sym;
+		}
+
+		rb_link_node(&data->node, parent, node);
+		rb_insert_color(&data->node, &root_caller_stat);
+		return data;
+	}
+}
+
+#define HASH_SIZE  4096
+static struct hlist_head page_hash[HASH_SIZE];
+
+static int page_stat_hash(unsigned long page)
+{
+	return (page >> 6) % HASH_SIZE;
+}
+
+static void insert_caller_page_hash(unsigned long page, unsigned order,
+				    struct alloc_page_stat *stat, bool add)
+{
+	struct alloc_page_stat *pas;
+	u64 alloc_size = 4096 << order;
+	int key = page_stat_hash(page);
+
+	hlist_for_each_entry(pas, &page_hash[key], hnode) {
+		if (pas->page == page) {
+			if (add)
+				return;
+
+			if (pas->alloc_now < alloc_size)
+				pas->alloc_now = 0;
+			else
+				pas->alloc_now -= alloc_size;
+			return;
+		}
+	}
+	if (add)
+		hlist_add_head(&stat->hnode, &page_hash[key]);
+}
+
+static const char *alloc_funcs[] = {
+	"__alloc_pages_nodemask",
+	"alloc_pages_current",
+	"__get_free_pages",
+};
+
+static int perf_evsel__process_page_alloc_event(struct perf_evsel *evsel,
+						struct perf_sample *sample)
+{
+	unsigned long page = perf_evsel__intval(evsel, sample, "page");
+	unsigned order = perf_evsel__intval(evsel, sample, "order");
+	struct callchain_cursor_node *node;
+	struct callchain_cursor_node **saved;
+	struct alloc_page_stat *stat;
+	unsigned i = 0;
+
+	pr_debug2("page alloc (%lx, order: %u)\n", page, order);
+
+	if (callchain_cursor.nr == 0)
+		return 0;
+
+	callchain_cursor_commit(&callchain_cursor);
+
+	saved = calloc(sizeof(*saved), callchain_cursor.nr);
+	if (saved == NULL)
+		return 0;
+
+	node = callchain_cursor_current(&callchain_cursor);
+	while (node && node->sym) {
+		unsigned f;
+
+		/* filter out internal allocator functions */
+		for (f = 0; f < ARRAY_SIZE(alloc_funcs); f++)
+			if (!strcmp(node->sym->name, alloc_funcs[f]))
+				goto next;
+
+		saved[i++] = node;
+		pr_debug3("%*s%s\n", i*2, "", node->sym->name);
+next:
+		callchain_cursor_advance(&callchain_cursor);
+		node = callchain_cursor_current(&callchain_cursor);
+	}
+
+	stat = insert_caller_page_stat(page, order, saved, i);
+	if (stat)
+		insert_caller_page_hash(page, order, stat, true);
+
+	free(saved);
+	return 0;
+}
+
+static int perf_evsel__process_page_free_event(struct perf_evsel *evsel,
+						struct perf_sample *sample)
+{
+	unsigned long page = perf_evsel__intval(evsel, sample, "page");
+	unsigned order = perf_evsel__intval(evsel, sample, "order");
+
+	insert_caller_page_hash(page, order, NULL, false);
+	pr_debug2("page free  (%lx, order: %u)\n", page, order);
+
+	return 0;
+}
+
 typedef int (*tracepoint_handler)(struct perf_evsel *evsel,
 				  struct perf_sample *sample);
 
@@ -314,6 +510,13 @@ static int process_sample_event(struct perf_tool *tool __maybe_unused,
 	}
 
 	dump_printf(" ... thread: %s:%d\n", thread->comm, thread->tid);
+
+	if (sample->callchain) {
+		int err = machine__resolve_callchain(machine, evsel, thread,
+						     sample, NULL, NULL);
+		if (err)
+			return err;
+	}
 
 	if (evsel->handler.func != NULL) {
 		tracepoint_handler f = evsel->handler.func;
@@ -484,6 +687,8 @@ static int __cmd_kmem(void)
     		{ "kmem:kmem_cache_alloc_node", perf_evsel__process_alloc_node_event, },
 		{ "kmem:kfree",			perf_evsel__process_free_event, },
     		{ "kmem:kmem_cache_free",	perf_evsel__process_free_event, },
+		{ "kmem:mm_page_alloc",		perf_evsel__process_page_alloc_event, },
+		{ "kmem:mm_page_free",		perf_evsel__process_page_free_event, },
 	};
 
 	session = perf_session__new(input_name, O_RDONLY, 0, false, &perf_kmem);
@@ -705,10 +910,27 @@ static int parse_line_opt(const struct option *opt __maybe_unused,
 	return 0;
 }
 
+static int
+parse_mode_opt(const struct option *opt, const char *arg __maybe_unused,
+	       int unset __maybe_unused)
+{
+	if (mode == -1)
+		mode = 0;
+
+	if (strcmp(opt->long_name, "slab") == 0)
+		mode |= KMEM_MODE_SLAB;
+	else if (strcmp(opt->long_name, "page") == 0)
+		mode |= KMEM_MODE_PAGE;
+
+	return 0;
+}
+
 static int __cmd_record(int argc, const char **argv)
 {
 	const char * const record_args[] = {
-	"record", "-a", "-R", "-c", "1",
+	"record", "-a", "-R", "-c", "1", "-g", "fp",
+	};
+	const char * const slab_events[] = {
 	"-e", "kmem:kmalloc",
 	"-e", "kmem:kmalloc_node",
 	"-e", "kmem:kfree",
@@ -716,10 +938,20 @@ static int __cmd_record(int argc, const char **argv)
 	"-e", "kmem:kmem_cache_alloc_node",
 	"-e", "kmem:kmem_cache_free",
 	};
+	const char * const page_events[] = {
+	"-e", "kmem:mm_page_alloc",
+	"-e", "kmem:mm_page_free",
+	};
 	unsigned int rec_argc, i, j;
 	const char **rec_argv;
 
 	rec_argc = ARRAY_SIZE(record_args) + argc - 1;
+
+	if (mode & KMEM_MODE_SLAB)
+		rec_argc += ARRAY_SIZE(slab_events);
+	if (mode & KMEM_MODE_PAGE)
+		rec_argc += ARRAY_SIZE(page_events);
+
 	rec_argv = calloc(rec_argc + 1, sizeof(char *));
 
 	if (rec_argv == NULL)
@@ -727,6 +959,14 @@ static int __cmd_record(int argc, const char **argv)
 
 	for (i = 0; i < ARRAY_SIZE(record_args); i++)
 		rec_argv[i] = strdup(record_args[i]);
+
+	if (mode & KMEM_MODE_SLAB)
+		for (j = 0; j < ARRAY_SIZE(slab_events); j++, i++)
+			rec_argv[i] = strdup(slab_events[j]);
+
+	if (mode & KMEM_MODE_PAGE)
+		for (j = 0; j < ARRAY_SIZE(page_events); j++, i++)
+			rec_argv[i] = strdup(page_events[j]);
 
 	for (j = 1; j < (unsigned int)argc; j++, i++)
 		rec_argv[i] = argv[j];
@@ -748,6 +988,12 @@ int cmd_kmem(int argc, const char **argv, const char *prefix __maybe_unused)
 		     parse_sort_opt),
 	OPT_CALLBACK('l', "line", NULL, "num", "show n lines", parse_line_opt),
 	OPT_BOOLEAN(0, "raw-ip", &raw_ip, "show raw ip instead of symbol"),
+	OPT_CALLBACK_NOOPT(0, "slab", NULL, NULL,
+		"analyze slab allocator events (Default)", parse_mode_opt),
+	OPT_CALLBACK_NOOPT(0, "page", NULL, NULL,
+			   "analyze page allocator events", parse_mode_opt),
+	OPT_INCR('v', "verbose", &verbose,
+		    "be more verbose (show symbol address, etc)"),
 	OPT_END()
 	};
 	const char * const kmem_usage[] = {
@@ -758,6 +1004,9 @@ int cmd_kmem(int argc, const char **argv, const char *prefix __maybe_unused)
 
 	if (!argc)
 		usage_with_options(kmem_usage, kmem_options);
+
+	if (mode == -1)
+		mode = KMEM_MODE_SLAB;
 
 	symbol__init();
 
