@@ -832,7 +832,7 @@ static void dump_event(struct perf_session *session, union perf_event *event,
 	printf("\n%#" PRIx64 " [%#x]: event: %d\n",
 	       file_offset, event->header.size, event->header.type);
 
-	trace_event(event);
+	dump_raw_event(event, event->header.size);
 
 	if (sample)
 		perf_session__print_tstamp(session, event, sample);

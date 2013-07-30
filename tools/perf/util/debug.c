@@ -47,7 +47,7 @@ int dump_printf(const char *fmt, ...)
 	return ret;
 }
 
-void trace_event(union perf_event *event)
+void dump_raw_event(void *event, int size)
 {
 	unsigned char *raw_event = (void *)event;
 	const char *color = PERF_COLOR_BLUE;
@@ -58,9 +58,9 @@ void trace_event(union perf_event *event)
 
 	printf(".");
 	color_fprintf(stdout, color, "\n. ... raw event: size %d bytes\n",
-		      event->header.size);
+		      size);
 
-	for (i = 0; i < event->header.size; i++) {
+	for (i = 0; i < size; i++) {
 		if ((i & 15) == 0) {
 			printf(".");
 			color_fprintf(stdout, color, "  %04x: ", i);
@@ -68,7 +68,7 @@ void trace_event(union perf_event *event)
 
 		color_fprintf(stdout, color, " %02x", raw_event[i]);
 
-		if (((i & 15) == 15) || i == event->header.size-1) {
+		if (((i & 15) == 15) || i == size-1) {
 			color_fprintf(stdout, color, "  ");
 			for (j = 0; j < 15-(i & 15); j++)
 				color_fprintf(stdout, color, "   ");

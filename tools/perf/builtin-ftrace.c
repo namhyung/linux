@@ -1350,6 +1350,12 @@ static int do_ftrace_report(struct perf_ftrace *ftrace)
 			goto out;
 		}
 
+		dump_printf(" .... event: %s\n", perf_evsel__name(evsel));
+		dump_raw_event(record, record->size);
+		dump_printf("%3d %llu %#llx [%#x]\n\n",
+			    record->cpu, record->ts, record->offset,
+			    record->size);
+
 		/* TODO: update sample.period using calltime */
 		if (!__hists__add_entry(&evsel->hists, &al, NULL,
 					sample.period, 0, 0)) {
