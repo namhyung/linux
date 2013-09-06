@@ -22,6 +22,7 @@
 #include "util/thread_map.h"
 #include "util/cpumap.h"
 #include "util/sort.h"
+#include "util/strlist.h"
 #include "util/trace-event.h"
 #include "../lib/traceevent/kbuffer.h"
 #include "../lib/traceevent/event-parse.h"
@@ -36,6 +37,7 @@ struct perf_ftrace {
 	const char *tracer;
 	const char *dirname;
 	const char *clock;
+	struct strlist *filter;
 	struct pevent *pevent;
 	bool show_full_info;
 };
@@ -116,6 +118,12 @@ static int reset_tracing_files(struct perf_ftrace *ftrace __maybe_unused)
 		return -1;
 
 	if (write_tracing_file("trace_clock", "local") < 0)
+		return -1;
+
+	if (write_tracing_file("set_ftrace_filter", " ") < 0)
+		return -1;
+
+	if (write_tracing_file("set_graph_function", " ") < 0)
 		return -1;
 
 	return 0;
@@ -210,6 +218,28 @@ static int set_tracing_clock(struct perf_ftrace *ftrace)
 	return write_tracing_file("trace_clock", "local");
 }
 
+static int set_tracing_filter(struct perf_ftrace *ftrace)
+{
+	const char *filter_file;
+	struct str_node *func;
+
+	if (ftrace->filter == NULL)
+		return 0;
+
+	if (!strcmp(ftrace->tracer, "function_graph"))
+		filter_file = "set_graph_function";
+	else if (!strcmp(ftrace->tracer, "function"))
+		filter_file = "set_ftrace_filter";
+	else
+		return 0;
+
+	strlist__for_each(func, ftrace->filter) {
+		if (append_tracing_file(filter_file, func->s) < 0)
+			return -1;
+	}
+	return 0;
+}
+
 static int setup_tracing_files(struct perf_ftrace *ftrace)
 {
 	int ret = -1;
@@ -237,6 +267,11 @@ static int setup_tracing_files(struct perf_ftrace *ftrace)
 
 	if (set_tracing_clock(ftrace) < 0) {
 		pr_err("failed to set trace clock\n");
+		goto out;
+	}
+
+	if (set_tracing_filter(ftrace) < 0) {
+		pr_err("failed to set ftrace filter\n");
 		goto out;
 	}
 
@@ -1596,6 +1631,22 @@ static void ftrace_teardown(struct perf_ftrace *ftrace)
 {
 	perf_evlist__delete_maps(ftrace->evlist);
 	perf_evlist__delete(ftrace->evlist);
+	strlist__delete(ftrace->filter);
+}
+
+static int function_filters(const struct option *opt, const char *str,
+			    int unset __maybe_unused)
+{
+	struct perf_ftrace *ftrace = opt->value;
+
+	if (ftrace->filter == NULL) {
+		ftrace->filter = strlist__new(true, NULL);
+		if (ftrace->filter == NULL)
+			return -ENOMEM;
+	}
+
+	strlist__parse_list(ftrace->filter, str);
+	return 0;
 }
 
 static int
@@ -1610,6 +1661,8 @@ __cmd_ftrace_live(struct perf_ftrace *ftrace, int argc, const char **argv)
 	const struct option live_options[] = {
 	OPT_STRING('t', "tracer", &ftrace->tracer, "tracer",
 		   "tracer to use: function_graph or function"),
+	OPT_CALLBACK('l', "filter", ftrace, "function[,function,...]",
+		     "show only these functions in the trace", function_filters),
 	OPT_STRING('p', "pid", &ftrace->target.pid, "pid",
 		   "trace on existing process id"),
 	OPT_INCR('v', "verbose", &verbose,
@@ -1652,6 +1705,8 @@ __cmd_ftrace_record(struct perf_ftrace *ftrace, int argc, const char **argv)
 	const struct option record_options[] = {
 	OPT_STRING('t', "tracer", &ftrace->tracer, "tracer",
 		   "tracer to use: function_graph or function"),
+	OPT_CALLBACK('l', "filter", ftrace, "function[,function,...]",
+		     "show only these functions in the trace", function_filters),
 	OPT_STRING('p', "pid", &ftrace->target.pid, "pid",
 		   "trace on existing process id"),
 	OPT_INCR('v', "verbose", &verbose,

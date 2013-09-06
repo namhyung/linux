@@ -50,6 +50,11 @@ OPTIONS
 	tracer in system and outputs trace result directly from the
 	ftrace's trace_pipe.
 
+-l::
+--filter=::
+	Filter given functions to suppress others in the output.
+	Used by 'live' and 'record' subcommands only.
+
 -p::
 --pid=::
 	Record events on existing process ID (comma separated list).
