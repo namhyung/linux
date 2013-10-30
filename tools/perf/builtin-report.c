@@ -509,6 +509,12 @@ iter_add_next_cumulative_entry(struct add_entry_iter *iter,
 
 	he_cache[iter->curr++] = he;
 
+	/*
+	 * This is for putting parents upward during output resort iff
+	 * only a child gets sampled.  See hist_entry__sort_on_period().
+	 */
+	he->callchain->max_depth = callchain_cursor.nr - callchain_cursor.pos;
+
 	return hist_entry__inc_addr_samples(he, evsel->idx, al->addr);
 }
 
