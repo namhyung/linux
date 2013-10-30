@@ -93,29 +93,74 @@ static int hist_entry__append_callchain(struct hist_entry *he, struct perf_sampl
 	return callchain_append(he->callchain, &callchain_cursor, sample->period);
 }
 
-static int report__add_mem_hist_entry(struct perf_tool *tool, struct addr_location *al,
-				      struct perf_sample *sample, struct perf_evsel *evsel,
-				      union perf_event *event)
-{
-	struct report *rep = container_of(tool, struct report, tool);
-	struct symbol *parent = NULL;
-	u8 cpumode = event->header.misc & PERF_RECORD_MISC_CPUMODE_MASK;
+struct add_entry_iter {
+	int total;
+	int curr;
+
+	struct report *rep;
+	struct perf_evsel *evsel;
+	struct perf_sample *sample;
 	struct hist_entry *he;
-	struct mem_info *mi, *mx;
-	uint64_t cost;
-	int err = report__resolve_callchain(rep, &parent, evsel, al, sample);
+	struct symbol *parent;
+	void *priv;
 
-	if (err)
-		return err;
+	int (*prepare_entry)(struct add_entry_iter *, struct machine *,
+			     struct perf_evsel *, struct addr_location *,
+			     struct perf_sample *);
+	int (*add_single_entry)(struct add_entry_iter *, struct addr_location *);
+	int (*next_entry)(struct add_entry_iter *, struct addr_location *);
+	int (*add_next_entry)(struct add_entry_iter *, struct addr_location *);
+	int (*finish_entry)(struct add_entry_iter *, struct addr_location *);
+};
 
-	mi = machine__resolve_mem(al->machine, al->thread, sample, cpumode);
-	if (!mi)
+static int
+iter_next_nop_entry(struct add_entry_iter *iter __maybe_unused,
+		    struct addr_location *al __maybe_unused)
+{
+	return 0;
+}
+
+static int
+iter_add_next_nop_entry(struct add_entry_iter *iter __maybe_unused,
+			struct addr_location *al __maybe_unused)
+{
+	return 0;
+}
+
+static int
+iter_prepare_mem_entry(struct add_entry_iter *iter, struct machine *machine,
+		       struct perf_evsel *evsel, struct addr_location *al,
+		       struct perf_sample *sample)
+{
+	union perf_event *event = iter->priv;
+	struct mem_info *mi;
+	u8 cpumode;
+
+	BUG_ON(event == NULL);
+
+	cpumode = event->header.misc & PERF_RECORD_MISC_CPUMODE_MASK;
+
+	mi = machine__resolve_mem(machine, al->thread, sample, cpumode);
+	if (mi == NULL)
 		return -ENOMEM;
 
-	if (rep->hide_unresolved && !al->sym)
+	iter->evsel = evsel;
+	iter->sample = sample;
+	iter->priv = mi;
+	return 0;
+}
+
+static int
+iter_add_single_mem_entry(struct add_entry_iter *iter, struct addr_location *al)
+{
+	u64 cost;
+	struct mem_info *mi = iter->priv;
+	struct hist_entry *he;
+
+	if (iter->rep->hide_unresolved && !al->sym)
 		return 0;
 
-	cost = sample->weight;
+	cost = iter->sample->weight;
 	if (!cost)
 		cost = 1;
 
@@ -126,10 +171,26 @@ static int report__add_mem_hist_entry(struct perf_tool *tool, struct addr_locati
 	 * and this is indirectly achieved by passing period=weight here
 	 * and the he_stat__add_period() function.
 	 */
-	he = __hists__add_entry(&evsel->hists, al, parent, NULL, mi,
+	he = __hists__add_entry(&iter->evsel->hists, al, iter->parent, NULL, mi,
 				cost, cost, 0);
 	if (!he)
 		return -ENOMEM;
+
+	iter->he = he;
+	return 0;
+}
+
+static int
+iter_finish_mem_entry(struct add_entry_iter *iter, struct addr_location *al)
+{
+	struct perf_evsel *evsel = iter->evsel;
+	struct hist_entry *he = iter->he;
+	struct mem_info *mx;
+	int err = -ENOMEM;
+	u64 cost;
+
+	if (he == NULL)
+		return 0;
 
 	err = hist_entry__inc_addr_samples(he, evsel->idx, al->addr);
 	if (err)
@@ -140,96 +201,222 @@ static int report__add_mem_hist_entry(struct perf_tool *tool, struct addr_locati
 	if (err)
 		goto out;
 
+	cost = iter->sample->weight;
+	if (!cost)
+		cost = 1;
+
 	evsel->hists.stats.total_period += cost;
 	hists__inc_nr_events(&evsel->hists, PERF_RECORD_SAMPLE);
-	err = hist_entry__append_callchain(he, sample);
+
+	err = hist_entry__append_callchain(he, iter->sample);
+
 out:
+	iter->he = NULL;
 	return err;
 }
 
-static int report__add_branch_hist_entry(struct perf_tool *tool, struct addr_location *al,
-					 struct perf_sample *sample, struct perf_evsel *evsel)
+static int
+iter_prepare_branch_entry(struct add_entry_iter *iter, struct machine *machine,
+			  struct perf_evsel *evsel, struct addr_location *al,
+			  struct perf_sample *sample)
 {
-	struct report *rep = container_of(tool, struct report, tool);
-	struct symbol *parent = NULL;
-	unsigned i;
-	struct hist_entry *he;
-	struct branch_info *bi, *bx;
-	int err = report__resolve_callchain(rep, &parent, evsel, al, sample);
+	struct branch_info *bi;
 
-	if (err)
-		return err;
-
-	bi = machine__resolve_bstack(al->machine, al->thread,
+	bi = machine__resolve_bstack(machine, al->thread,
 				     sample->branch_stack);
 	if (!bi)
 		return -ENOMEM;
 
-	for (i = 0; i < sample->branch_stack->nr; i++) {
-		if (rep->hide_unresolved && !(bi[i].from.sym && bi[i].to.sym))
-			continue;
+	iter->curr = 0;
+	iter->total = sample->branch_stack->nr;
 
-		err = -ENOMEM;
+	iter->evsel = evsel;
+	iter->sample = sample;
+	iter->priv = bi;
+	return 0;
+}
 
-		/* overwrite the 'al' to branch-to info */
-		al->map = bi[i].to.map;
-		al->sym = bi[i].to.sym;
-		al->addr = bi[i].to.addr;
-		/*
-		 * The report shows the percentage of total branches captured
-		 * and not events sampled. Thus we use a pseudo period of 1.
-		 */
-		he = __hists__add_entry(&evsel->hists, al, parent, &bi[i], NULL,
-					1, 1, 0);
-		if (he) {
-			bx = he->branch_info;
-			err = addr_map_symbol__inc_samples(&bx->from, evsel->idx);
-			if (err)
-				goto out;
+static int
+iter_add_single_branch_entry(struct add_entry_iter *iter __maybe_unused,
+			     struct addr_location *al __maybe_unused)
+{
+	return 0;
+}
 
-			err = addr_map_symbol__inc_samples(&bx->to, evsel->idx);
-			if (err)
-				goto out;
+static int
+iter_next_branch_entry(struct add_entry_iter *iter, struct addr_location *al)
+{
+	struct branch_info *bi = iter->priv;
+	int i = iter->curr;
 
-			evsel->hists.stats.total_period += 1;
-			hists__inc_nr_events(&evsel->hists, PERF_RECORD_SAMPLE);
-		} else
-			goto out;
-	}
-	err = 0;
+	if (iter->curr >= iter->total)
+		return 0;
+
+	al->map = bi[i].to.map;
+	al->sym = bi[i].to.sym;
+	al->addr = bi[i].to.addr;
+	return 1;
+}
+
+static int
+iter_add_next_branch_entry(struct add_entry_iter *iter, struct addr_location *al)
+{
+	struct branch_info *bi, *bx;
+	struct perf_evsel *evsel = iter->evsel;
+	struct hist_entry *he;
+	int i = iter->curr;
+	int err = 0;
+
+	bi = iter->priv;
+
+	if (iter->rep->hide_unresolved && !(bi[i].from.sym && bi[i].to.sym))
+		goto out;
+
+	/*
+	 * The report shows the percentage of total branches captured
+	 * and not events sampled. Thus we use a pseudo period of 1.
+	 */
+	he = __hists__add_entry(&evsel->hists, al, iter->parent, &bi[i], NULL,
+				1, 1, 0);
+	if (he == NULL)
+		return -ENOMEM;
+
+	bx = he->branch_info;
+	err = addr_map_symbol__inc_samples(&bx->from, evsel->idx);
+	if (err)
+		goto out;
+
+	err = addr_map_symbol__inc_samples(&bx->to, evsel->idx);
+	if (err)
+		goto out;
+
+	evsel->hists.stats.total_period += 1;
+	hists__inc_nr_events(&evsel->hists, PERF_RECORD_SAMPLE);
+
 out:
-	free(bi);
+	iter->curr++;
 	return err;
 }
 
-static int report__add_hist_entry(struct perf_tool *tool, struct perf_evsel *evsel,
-				  struct addr_location *al, struct perf_sample *sample)
+static int
+iter_finish_branch_entry(struct add_entry_iter *iter,
+			 struct addr_location *al __maybe_unused)
 {
-	struct report *rep = container_of(tool, struct report, tool);
-	struct symbol *parent = NULL;
+	free(iter->priv);
+	iter->priv = NULL;
+
+	return iter->curr >= iter->total ? 0 : -1;
+}
+
+static int
+iter_prepare_normal_entry(struct add_entry_iter *iter,
+			  struct machine *machine __maybe_unused,
+			  struct perf_evsel *evsel,
+			  struct addr_location *al __maybe_unused,
+			  struct perf_sample *sample)
+{
+	iter->evsel = evsel;
+	iter->sample = sample;
+	return 0;
+}
+
+static int
+iter_add_single_normal_entry(struct add_entry_iter *iter, struct addr_location *al)
+{
+	struct perf_evsel *evsel = iter->evsel;
+	struct perf_sample *sample = iter->sample;
 	struct hist_entry *he;
-	int err = report__resolve_callchain(rep, &parent, evsel, al, sample);
 
-	if (err)
-		return err;
-
-	he = __hists__add_entry(&evsel->hists, al, parent, NULL, NULL,
+	he = __hists__add_entry(&evsel->hists, al, iter->parent, NULL, NULL,
 				sample->period, sample->weight,
 				sample->transaction);
 	if (he == NULL)
 		return -ENOMEM;
 
-	err = hist_entry__append_callchain(he, sample);
+	iter->he = he;
+	return 0;
+}
+
+static int
+iter_finish_normal_entry(struct add_entry_iter *iter, struct addr_location *al)
+{
+	int err;
+	struct hist_entry *he = iter->he;
+	struct perf_evsel *evsel = iter->evsel;
+	struct perf_sample *sample = iter->sample;
+
+	if (he == NULL)
+		return 0;
+
+	iter->he = NULL;
+
+	err = hist_entry__inc_addr_samples(he, evsel->idx, al->addr);
+	if (err)
+		return err;
+
+	evsel->hists.stats.total_period += sample->period;
+	hists__inc_nr_events(&evsel->hists, PERF_RECORD_SAMPLE);
+
+	return hist_entry__append_callchain(he, sample);
+}
+
+static struct add_entry_iter mem_iter = {
+	.prepare_entry 		= iter_prepare_mem_entry,
+	.add_single_entry 	= iter_add_single_mem_entry,
+	.next_entry 		= iter_next_nop_entry,
+	.add_next_entry 	= iter_add_next_nop_entry,
+	.finish_entry 		= iter_finish_mem_entry,
+};
+
+static struct add_entry_iter branch_iter = {
+	.prepare_entry 		= iter_prepare_branch_entry,
+	.add_single_entry 	= iter_add_single_branch_entry,
+	.next_entry 		= iter_next_branch_entry,
+	.add_next_entry 	= iter_add_next_branch_entry,
+	.finish_entry 		= iter_finish_branch_entry,
+};
+
+static struct add_entry_iter normal_iter = {
+	.prepare_entry 		= iter_prepare_normal_entry,
+	.add_single_entry 	= iter_add_single_normal_entry,
+	.next_entry 		= iter_next_nop_entry,
+	.add_next_entry 	= iter_add_next_nop_entry,
+	.finish_entry 		= iter_finish_normal_entry,
+};
+
+static int
+perf_evsel__add_entry(struct perf_evsel *evsel, struct addr_location *al,
+		      struct perf_sample *sample, struct machine *machine,
+		      struct add_entry_iter *iter)
+{
+	int err, err2;
+
+	err = report__resolve_callchain(iter->rep, &iter->parent, evsel, al,
+					sample);
+	if (err)
+		return err;
+
+	err = iter->prepare_entry(iter, machine, evsel, al, sample);
 	if (err)
 		goto out;
 
-	err = hist_entry__inc_addr_samples(he, evsel->idx, al->addr);
-	evsel->hists.stats.total_period += sample->period;
-	hists__inc_nr_events(&evsel->hists, PERF_RECORD_SAMPLE);
+	err = iter->add_single_entry(iter, al);
+	if (err)
+		goto out;
+
+	while (iter->next_entry(iter, al)) {
+		err = iter->add_next_entry(iter, al);
+		if (err)
+			break;
+	}
+
 out:
+	err2 = iter->finish_entry(iter, al);
+	if (!err)
+		err = err2;
+
 	return err;
 }
-
 
 static int process_sample_event(struct perf_tool *tool,
 				union perf_event *event,
@@ -239,6 +426,7 @@ static int process_sample_event(struct perf_tool *tool,
 {
 	struct report *rep = container_of(tool, struct report, tool);
 	struct addr_location al;
+	struct add_entry_iter *iter;
 	int ret;
 
 	if (perf_event__preprocess_sample(event, machine, &al, sample) < 0) {
@@ -253,22 +441,22 @@ static int process_sample_event(struct perf_tool *tool,
 	if (rep->cpu_list && !test_bit(sample->cpu, rep->cpu_bitmap))
 		return 0;
 
-	if (sort__mode == SORT_MODE__BRANCH) {
-		ret = report__add_branch_hist_entry(tool, &al, sample, evsel);
-		if (ret < 0)
-			pr_debug("problem adding lbr entry, skipping event\n");
-	} else if (rep->mem_mode == 1) {
-		ret = report__add_mem_hist_entry(tool, &al, sample, evsel, event);
-		if (ret < 0)
-			pr_debug("problem adding mem entry, skipping event\n");
-	} else {
-		if (al.map != NULL)
-			al.map->dso->hit = 1;
+	if (sort__mode == SORT_MODE__BRANCH)
+		iter = &branch_iter;
+	else if (rep->mem_mode == 1) {
+		iter = &mem_iter;
+		iter->priv = event;
+	} else
+		iter = &normal_iter;
 
-		ret = report__add_hist_entry(tool, evsel, &al, sample);
-		if (ret < 0)
-			pr_debug("problem incrementing symbol period, skipping event\n");
-	}
+	if (al.map != NULL)
+		al.map->dso->hit = 1;
+
+	iter->rep = rep;
+	ret = perf_evsel__add_entry(evsel, &al, sample, machine, iter);
+	if (ret < 0)
+		pr_debug("problem adding hist entry, skipping event\n");
+
 	return ret;
 }
 
