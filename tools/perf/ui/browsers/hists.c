@@ -828,11 +828,18 @@ static unsigned int hist_browser__refresh(struct ui_browser *browser)
 
 	for (nd = browser->top; nd; nd = rb_next(nd)) {
 		struct hist_entry *h = rb_entry(nd, struct hist_entry, rb_node);
-		float percent = h->stat.period * 100.0 /
-					hb->hists->stats.total_period;
+		float percent;
 
 		if (h->filtered)
 			continue;
+
+		if (symbol_conf.cumulate_callchain) {
+			percent = h->stat_acc->period * 100.0 /
+					hb->hists->stats.total_period;
+		} else {
+			percent = h->stat.period * 100.0 /
+					hb->hists->stats.total_period;
+		}
 
 		if (percent < hb->min_pcnt)
 			continue;
@@ -851,13 +858,17 @@ static struct rb_node *hists__filter_entries(struct rb_node *nd,
 {
 	while (nd != NULL) {
 		struct hist_entry *h = rb_entry(nd, struct hist_entry, rb_node);
-		float percent = h->stat.period * 100.0 /
+		float percent;
+
+		if (symbol_conf.cumulate_callchain) {
+			percent = h->stat_acc->period * 100.0 /
 					hists->stats.total_period;
+		} else {
+			percent = h->stat.period * 100.0 /
+					hists->stats.total_period;
+		}
 
-		if (percent < min_pcnt)
-			return NULL;
-
-		if (!h->filtered)
+		if (!h->filtered && percent >= min_pcnt)
 			return nd;
 
 		nd = rb_next(nd);
@@ -872,8 +883,15 @@ static struct rb_node *hists__filter_prev_entries(struct rb_node *nd,
 {
 	while (nd != NULL) {
 		struct hist_entry *h = rb_entry(nd, struct hist_entry, rb_node);
-		float percent = h->stat.period * 100.0 /
+		float percent;
+
+		if (symbol_conf.cumulate_callchain) {
+			percent = h->stat_acc->period * 100.0 /
 					hists->stats.total_period;
+		} else {
+			percent = h->stat.period * 100.0 /
+					hists->stats.total_period;
+		}
 
 		if (!h->filtered && percent >= min_pcnt)
 			return nd;
