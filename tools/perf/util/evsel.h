@@ -69,6 +69,7 @@ struct perf_evsel {
 	struct hists		hists;
 	u64			first_timestamp;
 	u64			last_timestamp;
+	u64			*prev_timestamps;
 	char			*name;
 	double			scale;
 	const char		*unit;

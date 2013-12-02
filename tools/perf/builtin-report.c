@@ -116,7 +116,7 @@ static int perf_report__add_mem_hist_entry(struct perf_tool *tool,
 	 * and the he_stat__add_period() function.
 	 */
 	he = __hists__add_entry(&evsel->hists, al, parent, NULL, mi,
-				cost, cost, 0);
+				cost, 0, cost, 0);
 	if (!he)
 		return -ENOMEM;
 
@@ -210,7 +210,7 @@ static int perf_report__add_branch_hist_entry(struct perf_tool *tool,
 		 * and not events sampled. Thus we use a pseudo period of 1.
 		 */
 		he = __hists__add_entry(&evsel->hists, al, parent, &bi[i], NULL,
-					1, 1, 0);
+					1, 0, 1, 0);
 		if (he) {
 			struct annotation *notes;
 			bx = he->branch_info;
@@ -272,8 +272,9 @@ static int perf_evsel__add_hist_entry(struct perf_tool *tool,
 	}
 
 	he = __hists__add_entry(&evsel->hists, al, parent, NULL, NULL,
-				sample->period, sample->weight,
-				sample->transaction);
+				sample->period,
+				tool->ordered_samples ? sample->read.time_enabled : 0,
+				sample->weight, sample->transaction);
 	if (he == NULL)
 		return -ENOMEM;
 

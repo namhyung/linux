@@ -926,6 +926,48 @@ perf_session__deliver_sample(struct perf_session *session,
 	u64 read_format = evsel->attr.read_format;
 
 	if (tool->ordered_samples) {
+		/* FIXME: need to find a way to determine cpu-wide session */
+		bool per_cpu_session = sample_type & PERF_SAMPLE_CPU;
+
+		sample->read.time_enabled = 0;
+
+		if (per_cpu_session) {
+			u64 *ts = evsel->prev_timestamps;
+
+			if (ts == NULL) {
+				int nr_cpus = session->header.env.nr_cpus_online;
+
+				ts = zalloc(nr_cpus * sizeof(ts));
+				if (ts == NULL)
+					return -ENOMEM;
+
+				evsel->prev_timestamps = ts;
+			}
+
+			if (ts[sample->cpu] != 0) {
+				u64 diff = sample->time - ts[sample->cpu];
+
+				sample->read.time_enabled = diff;
+			}
+			ts[sample->cpu] = sample->time;
+		} else {
+			u64 *ts = evsel->prev_timestamps;
+
+			if (ts == NULL) {
+				ts = zalloc(sizeof(*ts));
+				if (ts == NULL)
+					return -ENOMEM;
+
+				evsel->prev_timestamps = ts;
+			}
+
+			if (*ts != 0) {
+				u64 diff = sample->time - *ts;
+				sample->read.time_enabled = diff;
+			}
+			*ts = sample->time;
+		}
+
 		if (evsel->first_timestamp == 0)
 			evsel->first_timestamp = sample->time;
 

@@ -204,11 +204,12 @@ static void hist_entry__add_cpumode_period(struct hist_entry *he,
 }
 
 static void he_stat__add_period(struct he_stat *he_stat, u64 period,
-				u64 weight)
+				u64 sample_time, u64 weight)
 {
 
 	he_stat->period		+= period;
 	he_stat->weight		+= weight;
+	he_stat->time		+= sample_time;
 	he_stat->nr_events	+= 1;
 }
 
@@ -221,10 +222,12 @@ static void he_stat__add_stat(struct he_stat *dest, struct he_stat *src)
 	dest->period_guest_us	+= src->period_guest_us;
 	dest->nr_events		+= src->nr_events;
 	dest->weight		+= src->weight;
+	dest->time		+= src->time;
 }
 
 static void hist_entry__decay(struct hist_entry *he)
 {
+	he->stat.time = (he->stat.time * 7) / 8;
 	he->stat.period = (he->stat.period * 7) / 8;
 	he->stat.nr_events = (he->stat.nr_events * 7) / 8;
 	/* XXX need decay for weight too? */
@@ -366,6 +369,7 @@ static struct hist_entry *add_hist_entry(struct hists *hists,
 
 		if (!cmp) {
 			he_stat__add_period(&he->stat, entry->stat.period,
+					    entry->stat.time,
 					    entry->stat.weight);
 
 			/*
@@ -411,7 +415,8 @@ struct hist_entry *__hists__add_entry(struct hists *hists,
 				      struct symbol *sym_parent,
 				      struct branch_info *bi,
 				      struct mem_info *mi,
-				      u64 period, u64 weight, u64 transaction)
+				      u64 period, u64 sample_time,
+				      u64 weight, u64 transaction)
 {
 	struct hist_entry entry = {
 		.thread	= al->thread,
@@ -427,6 +432,7 @@ struct hist_entry *__hists__add_entry(struct hists *hists,
 			.nr_events = 1,
 			.period	= period,
 			.weight = weight,
+			.time = sample_time,
 		},
 		.parent = sym_parent,
 		.filtered = symbol__parent_filter(sym_parent),
