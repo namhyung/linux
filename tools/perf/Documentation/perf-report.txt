@@ -237,6 +237,12 @@ OPTIONS
 	Do not show entries which have an overhead under that percent.
 	(Default: 0).
 
+--event-time::
+	Show a column with elapsed sample times.  It could be useful when you
+	want to see a relation between time and period of samples.  The elapsed
+	time is a sum of time-diff between two adjacent samples of a event as
+	sample period is a diff of counter values between the two samples.
+
 SEE ALSO
 --------
 linkperf:perf-stat[1], linkperf:perf-annotate[1]
