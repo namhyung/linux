@@ -28,6 +28,7 @@ struct symbol;
  */
 struct events_stats {
 	u64 total_period;
+	u64 total_time;
 	u64 total_lost;
 	u64 total_invalid_chains;
 	u32 nr_events[PERF_RECORD_HEADER_MAX];

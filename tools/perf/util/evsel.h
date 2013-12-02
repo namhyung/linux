@@ -67,6 +67,8 @@ struct perf_evsel {
 	int			idx;
 	u32			ids;
 	struct hists		hists;
+	u64			first_timestamp;
+	u64			last_timestamp;
 	char			*name;
 	double			scale;
 	const char		*unit;

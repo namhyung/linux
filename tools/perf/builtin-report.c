@@ -456,6 +456,14 @@ static size_t hists__fprintf_nr_sample_events(struct perf_report *rep,
 		ret += fprintf(fp, "\n# Sort order   : %s", sort_order);
 	} else
 		ret += fprintf(fp, "\n# Event count (approx.): %" PRIu64, nr_events);
+	if (rep->tool.ordered_samples) {
+		u64 total_time = hists->stats.total_time;
+		u64 sec = total_time / NSEC_PER_SEC;
+		u64 usec = (total_time - sec * NSEC_PER_SEC) / NSEC_PER_USEC;
+
+		ret += fprintf(fp, "\n# Total sampling time  : "
+			       "%" PRIu64 ".%06" PRIu64 " (sec)", sec, usec);
+	}
 	return ret + fprintf(fp, "\n#\n");
 }
 
@@ -565,8 +573,13 @@ static int __cmd_report(struct perf_report *rep)
 	}
 
 	nr_samples = 0;
-	list_for_each_entry(pos, &session->evlist->entries, node)
+	list_for_each_entry(pos, &session->evlist->entries, node) {
 		nr_samples += pos->hists.nr_entries;
+		if (rep->tool.ordered_samples) {
+			pos->hists.stats.total_time = pos->last_timestamp -
+							pos->first_timestamp;
+		}
+	}
 
 	ui_progress__init(&prog, nr_samples, "Merging related events...");
 

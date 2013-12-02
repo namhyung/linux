@@ -925,6 +925,13 @@ perf_session__deliver_sample(struct perf_session *session,
 	u64 sample_type = evsel->attr.sample_type;
 	u64 read_format = evsel->attr.read_format;
 
+	if (tool->ordered_samples) {
+		if (evsel->first_timestamp == 0)
+			evsel->first_timestamp = sample->time;
+
+		evsel->last_timestamp = sample->time;
+	}
+
 	/* Standard sample delievery. */
 	if (!(sample_type & PERF_SAMPLE_READ))
 		return tool->sample(tool, event, sample, evsel, machine);
