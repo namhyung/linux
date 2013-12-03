@@ -30,9 +30,9 @@ OPTIONS
 	event (eventsel+umask) in the form of rNNN where NNN is a
 	 hexadecimal event descriptor.
 
--i::
---no-inherit::
-        child tasks do not inherit counters
+--inherit::
+        child tasks inherit counters
+
 -p::
 --pid=<pid>::
         stat events on existing process id (comma separated list)
@@ -40,7 +40,6 @@ OPTIONS
 -t::
 --tid=<tid>::
         stat events on existing thread id (comma separated list)
-
 
 -a::
 --all-cpus::

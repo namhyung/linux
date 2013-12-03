@@ -120,7 +120,7 @@ enum aggr_mode {
 };
 
 static int			run_count			=  1;
-static bool			no_inherit			= false;
+static bool			inherit				= true;
 static bool			scale				=  true;
 static enum aggr_mode		aggr_mode			= AGGR_GLOBAL;
 static volatile pid_t		child_pid			= -1;
@@ -293,7 +293,7 @@ static int create_perf_stat_counter(struct perf_evsel *evsel)
 		attr->read_format = PERF_FORMAT_TOTAL_TIME_ENABLED |
 				    PERF_FORMAT_TOTAL_TIME_RUNNING;
 
-	attr->inherit = !no_inherit;
+	attr->inherit = inherit;
 
 	if (target__has_cpu(&target))
 		return perf_evsel__open_per_cpu(evsel, perf_evsel__cpus(evsel));
@@ -1595,8 +1595,8 @@ int cmd_stat(int argc, const char **argv, const char *prefix __maybe_unused)
 		     parse_events_option),
 	OPT_CALLBACK(0, "filter", &evsel_list, "filter",
 		     "event filter", parse_filter),
-	OPT_BOOLEAN('i', "no-inherit", &no_inherit,
-		    "child tasks do not inherit counters"),
+	OPT_BOOLEAN(0, "inherit", &inherit,
+		    "child tasks inherit counters"),
 	OPT_STRING('p', "pid", &target.pid, "pid",
 		   "stat events on existing process id"),
 	OPT_STRING('t', "tid", &target.tid, "tid",
