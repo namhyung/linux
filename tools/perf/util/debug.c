@@ -19,12 +19,18 @@ bool dump_trace = false, quiet = false;
 static int _eprintf(int level, const char *fmt, va_list args)
 {
 	int ret = 0;
+	va_list ap;
 
 	if (verbose >= level) {
+		va_copy(ap, args);
+
 		if (use_browser >= 1)
 			ui_helpline__vshow(fmt, args);
 		else
 			ret = vfprintf(stderr, fmt, args);
+
+		perf_log__addv(fmt, ap);
+		va_end(ap);
 	}
 
 	return ret;
