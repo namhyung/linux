@@ -10,6 +10,7 @@
 
 #include "util/exec_cmd.h"
 #include "util/cache.h"
+#include "util/debug.h"
 #include "util/quote.h"
 #include "util/run-command.h"
 #include "util/parse-events.h"
@@ -524,6 +525,9 @@ int main(int argc, const char **argv)
 	 */
 	pthread__block_sigwinch();
 
+	if (perf_log__init() < 0)
+		fprintf(stderr, "Failed to init temporary log file.. ignoring\n");
+
 	while (1) {
 		static int done_help;
 		int was_alias = run_argv(&argc, &argv);
@@ -547,5 +551,6 @@ int main(int argc, const char **argv)
 	fprintf(stderr, "Failed to run command '%s': %s\n",
 		cmd, strerror(errno));
 out:
+	perf_log__exit();
 	return 1;
 }
