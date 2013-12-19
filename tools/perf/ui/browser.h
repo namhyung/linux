@@ -61,6 +61,7 @@ int ui_browser__input_window(const char *title, const char *text, char *input,
 			     const char *exit_msg, int delay_sec);
 struct perf_session_env;
 int tui__header_window(struct perf_session_env *env);
+int tui__log_window(void);
 
 void ui_browser__argv_seek(struct ui_browser *browser, off_t offset, int whence);
 unsigned int ui_browser__argv_refresh(struct ui_browser *browser);

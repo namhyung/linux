@@ -25,6 +25,7 @@ struct perf_log {
 	u32 lines;
 	u32 nr_alloc;
 	bool seen_newline;
+	bool linemap_changed;
 };
 
 extern struct perf_log perf_log;

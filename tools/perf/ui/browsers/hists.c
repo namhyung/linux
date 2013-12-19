@@ -1416,6 +1416,7 @@ static int perf_evsel__hists_browse(struct perf_evsel *evsel, int nr_events,
 	/* help messages are sorted by lexical order of the hotkey */
 	const char report_help[] = HIST_BROWSER_HELP_COMMON
 	"i             Show header information\n"
+	"l             Show log messages\n"
 	"P             Print histograms to perf.hist.N\n"
 	"r             Run available scripts\n"
 	"s             Switch to another data file in PWD\n"
@@ -1423,6 +1424,7 @@ static int perf_evsel__hists_browse(struct perf_evsel *evsel, int nr_events,
 	"V             Verbose (DSO names in callchains, etc)\n"
 	"/             Filter symbol by name";
 	const char top_help[] = HIST_BROWSER_HELP_COMMON
+	"l             Show log messages\n"
 	"P             Print histograms to perf.hist.N\n"
 	"t             Zoom into current Thread\n"
 	"V             Verbose (DSO names in callchains, etc)\n"
@@ -1516,6 +1518,9 @@ static int perf_evsel__hists_browse(struct perf_evsel *evsel, int nr_events,
 			/* env->arch is NULL for live-mode (i.e. perf top) */
 			if (env->arch)
 				tui__header_window(env);
+			continue;
+		case 'l':
+			tui__log_window();
 			continue;
 		case K_F1:
 		case 'h':

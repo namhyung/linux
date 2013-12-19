@@ -99,6 +99,8 @@ void perf_log__add(const char *msg)
 		/* restore original offset */
 		fseeko(fp, offset, SEEK_SET);
 		perf_log.lines = saved_lines;
+	} else {
+		perf_log.linemap_changed = true;
 	}
 	pthread_mutex_unlock(&ui__lock);
 }
