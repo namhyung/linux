@@ -22,6 +22,7 @@
 #include <string.h>
 #include <stdarg.h>
 
+#include <asm/bug.h>
 #include "event-parse.h"
 #include "event-utils.h"
 
@@ -32,8 +33,9 @@
 #define TRACE_SEQ_POISON	((void *)0xdeadbeef)
 #define TRACE_SEQ_CHECK(s)						\
 do {									\
-	if ((s)->buffer == TRACE_SEQ_POISON)			\
-		die("Usage of trace_seq after it was destroyed");	\
+	if (WARN_ONCE((s)->buffer == TRACE_SEQ_POISON,			\
+		      "Usage of trace_seq after it was destroyed"))	\
+		(s)->state = TRACE_SEQ__BUFFER_POISONED;		\
 } while (0)
 
 /**
@@ -46,6 +48,7 @@ void trace_seq_init(struct trace_seq *s)
 	s->readpos = 0;
 	s->buffer_size = TRACE_SEQ_BUF_SIZE;
 	s->buffer = malloc_or_die(s->buffer_size);
+	s->state = TRACE_SEQ__GOOD;
 }
 
 /**
@@ -80,8 +83,9 @@ static void expand_buffer(struct trace_seq *s)
 {
 	s->buffer_size += TRACE_SEQ_BUF_SIZE;
 	s->buffer = realloc(s->buffer, s->buffer_size);
-	if (!s->buffer)
-		die("Can't allocate trace_seq buffer memory");
+	if (WARN_ONCE(!s->buffer,
+		      "Can't allocate trace_seq buffer memory"))
+		s->state = TRACE_SEQ__MEM_ALLOC_FAILED;
 }
 
 /**
@@ -108,6 +112,9 @@ trace_seq_printf(struct trace_seq *s, const char *fmt, ...)
 	TRACE_SEQ_CHECK(s);
 
  try_again:
+	if (s->state != TRACE_SEQ__GOOD)
+		return 0;
+
 	len = (s->buffer_size - 1) - s->len;
 
 	va_start(ap, fmt);
@@ -144,6 +151,9 @@ trace_seq_vprintf(struct trace_seq *s, const char *fmt, va_list args)
 	TRACE_SEQ_CHECK(s);
 
  try_again:
+	if (s->state != TRACE_SEQ__GOOD)
+		return 0;
+
 	len = (s->buffer_size - 1) - s->len;
 
 	ret = vsnprintf(s->buffer + s->len, len, fmt, args);
@@ -174,10 +184,16 @@ int trace_seq_puts(struct trace_seq *s, const char *str)
 
 	TRACE_SEQ_CHECK(s);
 
+	if (s->state != TRACE_SEQ__GOOD)
+		return 0;
+
 	len = strlen(str);
 
 	while (len > ((s->buffer_size - 1) - s->len))
 		expand_buffer(s);
+
+	if (s->state != TRACE_SEQ__GOOD)
+		return 0;
 
 	memcpy(s->buffer + s->len, str, len);
 	s->len += len;
@@ -189,8 +205,14 @@ int trace_seq_putc(struct trace_seq *s, unsigned char c)
 {
 	TRACE_SEQ_CHECK(s);
 
+	if (s->state != TRACE_SEQ__GOOD)
+		return 0;
+
 	while (s->len >= (s->buffer_size - 1))
 		expand_buffer(s);
+
+	if (s->state != TRACE_SEQ__GOOD)
+		return 0;
 
 	s->buffer[s->len++] = c;
 
@@ -201,6 +223,9 @@ void trace_seq_terminate(struct trace_seq *s)
 {
 	TRACE_SEQ_CHECK(s);
 
+	if (s->state != TRACE_SEQ__GOOD)
+		return;
+
 	/* There's always one character left on the buffer */
 	s->buffer[s->len] = 0;
 }
@@ -208,5 +233,16 @@ void trace_seq_terminate(struct trace_seq *s)
 int trace_seq_do_printf(struct trace_seq *s)
 {
 	TRACE_SEQ_CHECK(s);
-	return printf("%.*s", s->len, s->buffer);
+
+	switch (s->state) {
+	case TRACE_SEQ__GOOD:
+		return printf("%.*s", s->len, s->buffer);
+	case TRACE_SEQ__BUFFER_POISONED:
+		puts("Usage of trace_seq after it was destroyed");
+		break;
+	case TRACE_SEQ__MEM_ALLOC_FAILED:
+		puts("Can't allocate trace_seq buffer memory");
+		break;
+	}
+	return -1;
 }
