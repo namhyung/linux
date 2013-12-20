@@ -586,7 +586,11 @@ static int __run_perf_stat(int argc, const char **argv)
 	clock_gettime(CLOCK_MONOTONIC, &ref_time);
 
 	if (forks) {
-		perf_evlist__start_workload(evsel_list);
+		if (perf_evlist__start_workload(evsel_list) != 0) {
+			pr_err("Failed to start workload\n");
+			return -1;
+		}
+
 		handle_initial_delay();
 
 		if (interval) {
@@ -1793,7 +1797,10 @@ int cmd_stat(int argc, const char **argv, const char *prefix __maybe_unused)
 				run_idx + 1);
 
 		status = run_perf_stat(argc, argv);
-		if (forever && status != -1) {
+		if (status < 0)
+			break;
+
+		if (forever) {
 			print_stat(argc, argv);
 			perf_stat__reset_stats(evsel_list);
 		}
