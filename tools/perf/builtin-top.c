@@ -657,6 +657,99 @@ static int symbol_filter(struct map *map __maybe_unused, struct symbol *sym)
 	return 0;
 }
 
+static int process_cumulative_entry(struct perf_top *top,
+				    struct hist_entry *he,
+				    struct perf_evsel *evsel,
+				    struct addr_location *al,
+				    struct perf_sample *sample,
+				    struct symbol *parent)
+{
+	struct hist_entry **he_cache;
+	struct callchain_cursor_node *node;
+	int idx = 0, err;
+
+	he_cache = malloc(sizeof(*he_cache) * (PERF_MAX_STACK_DEPTH + 1));
+	if (he_cache == NULL)
+		return -ENOMEM;
+
+	pthread_mutex_lock(&evsel->hists.lock);
+
+	he_cache[idx++] = he;
+
+	/*
+	 * This is for putting parents upward during output resort iff
+	 * only a child gets sampled.  See hist_entry__sort_on_period().
+	 */
+	he->callchain->max_depth = PERF_MAX_STACK_DEPTH + 1;
+
+	callchain_cursor_commit(&callchain_cursor);
+
+	node = callchain_cursor_current(&callchain_cursor);
+	while (node) {
+		int i;
+		struct hist_entry he_tmp = {
+			.cpu = al->cpu,
+			.thread = al->thread,
+			.comm = thread__comm(al->thread),
+			.parent = parent,
+		};
+
+		fill_callchain_info(al, node, false);
+
+		he_tmp.ip = al->addr;
+		he_tmp.ms.map = al->map;
+		he_tmp.ms.sym = al->sym;
+
+		if (al->sym && al->sym->ignore)
+			goto next;
+
+		/*
+		 * Check if there's duplicate entries in the callchain.
+		 * It's possible that it has cycles or recursive calls.
+		 */
+		for (i = 0; i < idx; i++) {
+			if (hist_entry__cmp(he_cache[i], &he_tmp) == 0)
+				goto next;
+		}
+
+		he = __hists__add_entry(&evsel->hists, al, parent, NULL, NULL,
+					sample->period, sample->weight,
+					sample->transaction, false);
+		if (he == NULL) {
+			err = -ENOMEM;
+			break;;
+		}
+
+		he_cache[idx++] = he;
+
+		/*
+		 * This is for putting parents upward during output resort iff
+		 * only a child gets sampled.  See hist_entry__sort_on_period().
+		 */
+		he->callchain->max_depth = callchain_cursor.nr - callchain_cursor.pos;
+
+		if (sort__has_sym) {
+			u64 ip;
+
+			if (al->map)
+				ip = al->map->unmap_ip(al->map, al->addr);
+			else
+				ip = al->addr;
+
+			perf_top__record_precise_ip(top, he, evsel->idx, ip);
+		}
+
+next:
+		callchain_cursor_advance(&callchain_cursor);
+		node = callchain_cursor_current(&callchain_cursor);
+	}
+
+	pthread_mutex_unlock(&evsel->hists.lock);
+
+	free(he_cache);
+	return err;
+}
+
 static void perf_event__process_sample(struct perf_tool *tool,
 				       const union perf_event *event,
 				       struct perf_evsel *evsel,
@@ -754,9 +847,16 @@ static void perf_event__process_sample(struct perf_tool *tool,
 			return;
 		}
 
-		err = hist_entry__append_callchain(he, sample);
-		if (err)
-			return;
+		if (symbol_conf.cumulate_callchain) {
+			err = process_cumulative_entry(top, he, evsel, &al,
+						       sample, parent);
+			if (err)
+				return;
+		} else {
+			err = hist_entry__append_callchain(he, sample);
+			if (err)
+				return;
+		}
 
 		if (sort__has_sym)
 			perf_top__record_precise_ip(top, he, evsel->idx, ip);
