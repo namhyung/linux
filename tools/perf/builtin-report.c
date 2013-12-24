@@ -402,43 +402,7 @@ iter_next_cumulative_entry(struct hist_entry_iter *iter,
 	if (node == NULL)
 		return 0;
 
-	al->map = node->map;
-	al->sym = node->sym;
-	if (node->map)
-		al->addr = node->map->map_ip(node->map, node->ip);
-	else
-		al->addr = node->ip;
-
-	if (al->sym == NULL) {
-		if (iter->rep->hide_unresolved)
-			return 0;
-		if (al->map == NULL)
-			goto out;
-	}
-
-	if (al->map->groups == &al->machine->kmaps) {
-		if (machine__is_host(al->machine)) {
-			al->cpumode = PERF_RECORD_MISC_KERNEL;
-			al->level = 'k';
-		} else {
-			al->cpumode = PERF_RECORD_MISC_GUEST_KERNEL;
-			al->level = 'g';
-		}
-	} else {
-		if (machine__is_host(al->machine)) {
-			al->cpumode = PERF_RECORD_MISC_USER;
-			al->level = '.';
-		} else if (perf_guest) {
-			al->cpumode = PERF_RECORD_MISC_GUEST_USER;
-			al->level = 'u';
-		} else {
-			al->cpumode = PERF_RECORD_MISC_HYPERVISOR;
-			al->level = 'H';
-		}
-	}
-
-out:
-	return 1;
+	return fill_callchain_info(al, node, iter->rep->hide_unresolved);
 }
 
 static int
