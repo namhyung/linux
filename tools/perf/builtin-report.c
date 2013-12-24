@@ -79,24 +79,6 @@ static int report__config(const char *var, const char *value, void *cb)
 	return perf_default_config(var, value, cb);
 }
 
-static int report__resolve_callchain(struct report *rep, struct symbol **parent,
-				     struct perf_evsel *evsel, struct addr_location *al,
-				     struct perf_sample *sample)
-{
-	if ((sort__has_parent || symbol_conf.use_callchain) && sample->callchain) {
-		return machine__resolve_callchain(al->machine, evsel, al->thread, sample,
-						  parent, al, rep->max_stack);
-	}
-	return 0;
-}
-
-static int hist_entry__append_callchain(struct hist_entry *he, struct perf_sample *sample)
-{
-	if (!symbol_conf.use_callchain)
-		return 0;
-	return callchain_append(he->callchain, &callchain_cursor, sample->period);
-}
-
 struct add_entry_iter {
 	int total;
 	int curr;
@@ -576,8 +558,8 @@ perf_evsel__add_entry(struct perf_evsel *evsel, struct addr_location *al,
 {
 	int err, err2;
 
-	err = report__resolve_callchain(iter->rep, &iter->parent, evsel, al,
-					sample);
+	err = sample__resolve_callchain(sample, &iter->parent, evsel, al,
+					iter->rep->max_stack);
 	if (err)
 		return err;
 
