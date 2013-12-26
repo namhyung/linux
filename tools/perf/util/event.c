@@ -3,6 +3,7 @@
 #include "debug.h"
 #include "machine.h"
 #include "sort.h"
+#include "hist.h"
 #include "string.h"
 #include "strlist.h"
 #include "thread.h"
@@ -661,7 +662,7 @@ void thread__find_addr_map(struct thread *thread,
 	al->thread = thread;
 	al->addr = addr;
 	al->cpumode = cpumode;
-	al->filtered = false;
+	al->filtered = 0;
 
 	if (machine == NULL) {
 		al->map = NULL;
@@ -687,11 +688,11 @@ void thread__find_addr_map(struct thread *thread,
 		if ((cpumode == PERF_RECORD_MISC_GUEST_USER ||
 			cpumode == PERF_RECORD_MISC_GUEST_KERNEL) &&
 			!perf_guest)
-			al->filtered = true;
+			al->filtered |= (1 << HIST_FILTER__GUEST);
 		if ((cpumode == PERF_RECORD_MISC_USER ||
 			cpumode == PERF_RECORD_MISC_KERNEL) &&
 			!perf_host)
-			al->filtered = true;
+			al->filtered |= (1 << HIST_FILTER__HOST);
 
 		return;
 	}
@@ -748,9 +749,6 @@ int perf_event__preprocess_sample(const union perf_event *event,
 	if (thread == NULL)
 		return -1;
 
-	if (thread__is_filtered(thread))
-		goto out_filtered;
-
 	dump_printf(" ... thread: %s:%d\n", thread__comm_str(thread), thread->tid);
 	/*
 	 * Have we already created the kernel maps for this machine?
@@ -765,6 +763,10 @@ int perf_event__preprocess_sample(const union perf_event *event,
 
 	thread__find_addr_map(thread, machine, cpumode, MAP__FUNCTION,
 			      sample->ip, al);
+
+	if (thread__is_filtered(thread))
+		al->filtered |= (1 << HIST_FILTER__THREAD);
+
 	dump_printf(" ...... dso: %s\n",
 		    al->map ? al->map->dso->long_name :
 			al->level == 'H' ? "[hypervisor]" : "<not found>");
@@ -780,7 +782,7 @@ int perf_event__preprocess_sample(const union perf_event *event,
 			       (dso->short_name != dso->long_name &&
 				strlist__has_entry(symbol_conf.dso_list,
 						   dso->long_name)))))
-			goto out_filtered;
+			al->filtered |= (1 << HIST_FILTER__DSO);
 
 		al->sym = map__find_symbol(al->map, al->addr,
 					   machine->symbol_filter);
@@ -789,11 +791,7 @@ int perf_event__preprocess_sample(const union perf_event *event,
 	if (symbol_conf.sym_list &&
 		(!al->sym || !strlist__has_entry(symbol_conf.sym_list,
 						al->sym->name)))
-		goto out_filtered;
+		al->filtered |= (1 << HIST_FILTER__SYMBOL);
 
-	return 0;
-
-out_filtered:
-	al->filtered = true;
 	return 0;
 }
