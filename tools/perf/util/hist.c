@@ -698,7 +698,6 @@ static void hists__remove_entry_filter(struct hists *hists, struct hist_entry *h
 	if (h->ms.unfolded)
 		hists->nr_entries += h->nr_rows;
 	h->row_offset = 0;
-	hists->stats.total_period += h->stat.period;
 	hists->stats.nr_events[PERF_RECORD_SAMPLE] += h->stat.nr_events;
 
 	hists__calc_col_len(hists, h);
@@ -721,7 +720,7 @@ void hists__filter_by_dso(struct hists *hists)
 {
 	struct rb_node *nd;
 
-	hists->nr_entries = hists->stats.total_period = 0;
+	hists->nr_entries = 0;
 	hists->stats.nr_events[PERF_RECORD_SAMPLE] = 0;
 	hists__reset_col_len(hists);
 
@@ -754,7 +753,7 @@ void hists__filter_by_thread(struct hists *hists)
 {
 	struct rb_node *nd;
 
-	hists->nr_entries = hists->stats.total_period = 0;
+	hists->nr_entries = 0;
 	hists->stats.nr_events[PERF_RECORD_SAMPLE] = 0;
 	hists__reset_col_len(hists);
 
@@ -785,7 +784,7 @@ void hists__filter_by_symbol(struct hists *hists)
 {
 	struct rb_node *nd;
 
-	hists->nr_entries = hists->stats.total_period = 0;
+	hists->nr_entries = 0;
 	hists->stats.nr_events[PERF_RECORD_SAMPLE] = 0;
 	hists__reset_col_len(hists);
 
