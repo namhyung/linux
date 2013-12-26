@@ -13,10 +13,11 @@
 struct log_browser_data {
 	unsigned long offset;
 	u32 alloc;
+	u32 last_log_line;
 	char filter[64];
 };
 
-static void __log_menu__filter(struct ui_browser *menu, char *filter);
+static void __log_menu__filter(struct ui_browser *menu, char *filter, bool update);
 
 static void ui_browser__file_seek(struct ui_browser *browser __maybe_unused,
 				  off_t offset __maybe_unused,
@@ -61,7 +62,7 @@ static unsigned int ui_browser__file_refresh(struct ui_browser *browser)
 
 	if (perf_log.linemap_changed) {
 		/* update log window with new linemap */
-		__log_menu__filter(browser, lbd->filter);
+		__log_menu__filter(browser, lbd->filter, true);
 		perf_log.linemap_changed = false;
 	}
 
@@ -78,14 +79,15 @@ static unsigned int ui_browser__file_refresh(struct ui_browser *browser)
 	return row;
 }
 
-static void __log_menu__filter(struct ui_browser *menu, char *filter)
+static void __log_menu__filter(struct ui_browser *menu, char *filter, bool update)
 {
 	char buf[1024];
 	struct log_browser_data *lbd = menu->priv;
 	off_t *linemap = NULL;
 	u32 lines = 0;
 	u32 alloc = 0;
-	u32 i;
+	u32 last = 0;
+	u32 i = 0;
 
 	if (*filter == '\0') {
 		linemap = perf_log.linemap;
@@ -93,7 +95,14 @@ static void __log_menu__filter(struct ui_browser *menu, char *filter)
 		goto out;
 	}
 
-	for (i = 0; i < perf_log.lines; i++) {
+	if (update) {
+		linemap = menu->entries;
+		lines = menu->nr_entries;
+		alloc = lbd->alloc;
+		last = lbd->last_log_line;
+	}
+
+	for (i = last; i < perf_log.lines; i++) {
 		fseek(perf_log.fp, perf_log.linemap[i], SEEK_SET);
 		if (fgets(buf, sizeof(buf), perf_log.fp) == NULL)
 			goto error;
@@ -116,11 +125,16 @@ static void __log_menu__filter(struct ui_browser *menu, char *filter)
 	}
 
 out:
-	if (lbd->alloc) {
+	if (!update && lbd->alloc) {
 		BUG_ON(menu->entries == perf_log.linemap);
 		free(menu->entries);
 	}
+
 	lbd->alloc = alloc;
+	lbd->last_log_line = i;
+
+	if (!update)
+		ui_browser__reset_index(menu);
 
 	menu->entries = linemap;
 	ui_browser__update_nr_entries(menu, lines);
@@ -136,7 +150,7 @@ static void log_menu__filter(struct ui_browser *menu, char *filter)
 
 	pthread_mutex_lock(&ui__lock);
 	fgetpos(perf_log.fp, &pos);
-	__log_menu__filter(menu, filter);
+	__log_menu__filter(menu, filter, false);
 	fsetpos(perf_log.fp, &pos);
 	perf_log.linemap_changed = false;
 	pthread_mutex_unlock(&ui__lock);
