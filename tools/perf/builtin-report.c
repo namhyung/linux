@@ -363,7 +363,6 @@ static int
 iter_prepare_cumulative_entry(struct hist_entry_iter *iter __maybe_unused,
 			      struct addr_location *al __maybe_unused)
 {
-	struct callchain_cursor_node *node;
 	struct hist_entry **he_cache;
 
 	callchain_cursor_commit(&callchain_cursor);
@@ -379,10 +378,6 @@ iter_prepare_cumulative_entry(struct hist_entry_iter *iter __maybe_unused,
 
 	iter->priv = he_cache;
 	iter->curr = 0;
-
-	node = callchain_cursor_current(&callchain_cursor);
-	if (node == NULL)
-		return 0;
 
 	return 0;
 }
@@ -403,6 +398,14 @@ iter_add_single_cumulative_entry(struct hist_entry_iter *iter,
 		return -ENOMEM;
 
 	he_cache[iter->curr++] = he;
+
+	callchain_append(he->callchain, &callchain_cursor, sample->period);
+
+	/*
+	 * We need to re-initialize the cursor since callchain_append()
+	 * advanced the cursor to the end.
+	 */
+	callchain_cursor_commit(&callchain_cursor);
 
 	return hist_entry__inc_addr_samples(he, evsel->idx, al->addr);
 }
@@ -453,7 +456,6 @@ iter_next_cumulative_entry(struct hist_entry_iter *iter,
 	}
 
 out:
-	callchain_cursor_advance(&callchain_cursor);
 	return 1;
 }
 
@@ -477,6 +479,11 @@ iter_add_next_cumulative_entry(struct hist_entry_iter *iter,
 		.parent = iter->parent,
 	};
 	int i;
+	struct callchain_cursor cursor;
+
+	callchain_cursor_snapshot(&cursor, &callchain_cursor);
+
+	callchain_cursor_advance(&callchain_cursor);
 
 	/*
 	 * Check if there's duplicate entries in the callchain.
@@ -494,6 +501,8 @@ iter_add_next_cumulative_entry(struct hist_entry_iter *iter,
 		return -ENOMEM;
 
 	he_cache[iter->curr++] = he;
+
+	callchain_append(he->callchain, &cursor, sample->period);
 
 	return hist_entry__inc_addr_samples(he, evsel->idx, al->addr);
 }
