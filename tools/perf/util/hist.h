@@ -109,6 +109,10 @@ struct hist_entry_iter {
 	int (*next_entry)(struct hist_entry_iter *, struct addr_location *);
 	int (*add_next_entry)(struct hist_entry_iter *, struct addr_location *);
 	int (*finish_entry)(struct hist_entry_iter *, struct addr_location *);
+
+	/* user-defined callback function (optional) */
+	int (*add_entry_cb)(struct hist_entry_iter *iter,
+			    struct addr_location *al, bool single, void *arg);
 };
 
 extern struct hist_entry_iter hist_iter_normal;
@@ -126,7 +130,7 @@ struct hist_entry *__hists__add_entry(struct hists *hists,
 int hist_entry_iter__add(struct hist_entry_iter *iter, struct addr_location *al,
 			 struct perf_evsel *evsel, const union perf_event *event,
 			 struct perf_sample *sample, bool hide_unresolved,
-			 int max_stack_depth);
+			 int max_stack_depth, void *arg);
 
 int64_t hist_entry__cmp(struct hist_entry *left, struct hist_entry *right);
 int64_t hist_entry__collapse(struct hist_entry *left, struct hist_entry *right);
