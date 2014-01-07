@@ -80,6 +80,47 @@ static int report__config(const char *var, const char *value, void *cb)
 	return perf_default_config(var, value, cb);
 }
 
+static void report__inc_stats(struct report *rep, struct hist_entry *he)
+{
+	/*
+	 * The @he is either of a newly created one or an existing one
+	 * merging current sample.  We only want to count a new one so
+	 * checking ->nr_events being 1.
+	 */
+	if (he->stat.nr_events == 1)
+		rep->nr_entries++;
+
+	/*
+	 * Only counts number of samples at this stage as it's more
+	 * natural to do it here and non-sample events are also
+	 * counted in perf_session_deliver_event().  The dump_trace
+	 * requires this info is ready before going to the output tree.
+	 */
+	hists__inc_nr_events(he->hists, PERF_RECORD_SAMPLE);
+	if (!he->filtered)
+		he->hists->stats.nr_non_filtered_samples++;
+}
+
+static int hist_iter_cb(struct hist_entry_iter *iter,
+			struct addr_location *al, bool single, void *arg)
+{
+	int err = 0;
+	struct hist_entry *he = iter->he;
+	struct perf_evsel *evsel = iter->evsel;
+	struct report *rep = arg;
+
+	if (ui__has_annotation())
+		err = hist_entry__inc_addr_samples(he, evsel->idx, al->addr);
+
+	if (!single)
+		goto out;
+
+	report__inc_stats(rep, he);
+
+out:
+	return err;
+}
+
 static int process_sample_event(struct perf_tool *tool,
 				union perf_event *event,
 				struct perf_sample *sample,
@@ -109,17 +150,22 @@ static int process_sample_event(struct perf_tool *tool,
 		iter.ops = &hist_iter_branch;
 	else if (rep->mem_mode)
 		iter.ops = &hist_iter_mem;
-	else if (symbol_conf.cumulate_callchain)
+	else if (symbol_conf.cumulate_callchain) {
 		iter.ops = &hist_iter_cumulative;
-	else
+		iter.add_entry_cb = hist_iter_cb;
+	} else {
 		iter.ops = &hist_iter_normal;
+		iter.add_entry_cb = hist_iter_cb;
+	}
 
 	if (al.map != NULL)
 		al.map->dso->hit = 1;
 
-	rep->nr_entries++;
+	if (iter.add_entry_cb == NULL)
+		rep->nr_entries++;
 
-	ret = hist_entry_iter__add(&iter, &al, evsel, sample, rep->max_stack);
+	ret = hist_entry_iter__add(&iter, &al, evsel, sample, rep->max_stack,
+				   rep);
 	if (ret < 0)
 		pr_debug("problem adding hist entry, skipping event\n");
 

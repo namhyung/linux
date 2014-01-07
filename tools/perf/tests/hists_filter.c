@@ -42,6 +42,25 @@ static struct sample fake_samples[] = {
 	{ .pid = 300, .ip = 0xf0000 + 800, },
 };
 
+static int count_sample(struct hist_entry_iter *iter,
+			struct addr_location *al __maybe_unused, bool single,
+			void *arg __maybe_unused)
+{
+	struct hist_entry *he = iter->he;
+
+	if (he == NULL)
+		return -EINVAL;
+
+	if (!single)
+		return 0;
+
+	hists__inc_nr_events(he->hists, PERF_RECORD_SAMPLE);
+	if (!he->filtered)
+		he->hists->stats.nr_non_filtered_samples++;
+
+	return 0;
+}
+
 static int add_hist_entries(struct perf_evlist *evlist,
 			    struct machine *machine __maybe_unused)
 {
@@ -65,6 +84,7 @@ static int add_hist_entries(struct perf_evlist *evlist,
 			struct hist_entry_iter iter = {
 				.ops = &hist_iter_normal,
 				.hide_unresolved = false,
+				.add_entry_cb = count_sample,
 			};
 
 			/* make sure it has no filter at first */
@@ -82,7 +102,7 @@ static int add_hist_entries(struct perf_evlist *evlist,
 				goto out;
 
 			if (hist_entry_iter__add(&iter, &al, evsel, &sample,
-						 PERF_MAX_STACK_DEPTH) < 0)
+						 PERF_MAX_STACK_DEPTH, NULL) < 0)
 				goto out;
 
 			fake_samples[i].thread = al.thread;
