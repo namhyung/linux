@@ -91,6 +91,31 @@ struct hists {
 	u16			col_len[HISTC_NR_COLS];
 };
 
+struct hist_entry_iter {
+	int total;
+	int curr;
+
+	bool hide_unresolved;
+
+	const union perf_event *event;
+	struct perf_evsel *evsel;
+	struct perf_sample *sample;
+	struct hist_entry *he;
+	struct symbol *parent;
+	void *priv;
+
+	int (*prepare_entry)(struct hist_entry_iter *, struct addr_location *);
+	int (*add_single_entry)(struct hist_entry_iter *, struct addr_location *);
+	int (*next_entry)(struct hist_entry_iter *, struct addr_location *);
+	int (*add_next_entry)(struct hist_entry_iter *, struct addr_location *);
+	int (*finish_entry)(struct hist_entry_iter *, struct addr_location *);
+};
+
+extern struct hist_entry_iter hist_iter_normal;
+extern struct hist_entry_iter hist_iter_branch;
+extern struct hist_entry_iter hist_iter_mem;
+extern struct hist_entry_iter hist_iter_cumulative;
+
 struct hist_entry *__hists__add_entry(struct hists *hists,
 				      struct addr_location *al,
 				      struct symbol *parent,
@@ -98,6 +123,11 @@ struct hist_entry *__hists__add_entry(struct hists *hists,
 				      struct mem_info *mi, u64 period,
 				      u64 weight, u64 transaction,
 				      bool sample_self);
+int hist_entry_iter__add(struct hist_entry_iter *iter, struct addr_location *al,
+			 struct perf_evsel *evsel, const union perf_event *event,
+			 struct perf_sample *sample, bool hide_unresolved,
+			 int max_stack_depth);
+
 int64_t hist_entry__cmp(struct hist_entry *left, struct hist_entry *right);
 int64_t hist_entry__collapse(struct hist_entry *left, struct hist_entry *right);
 int hist_entry__transaction_len(void);
