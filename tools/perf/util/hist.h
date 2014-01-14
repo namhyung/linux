@@ -237,4 +237,7 @@ static inline int script_browse(const char *script_opt __maybe_unused)
 #endif
 
 unsigned int hists__sort_list_width(struct hists *hists);
+
+int perf_hist_config(const char *var, const char *value);
+
 #endif	/* __PERF_HIST_H */

@@ -934,3 +934,17 @@ int hists__link(struct hists *leader, struct hists *other)
 
 	return 0;
 }
+
+int perf_hist_config(const char *var, const char *value)
+{
+	if (!strcmp(var, "hist.percentage")) {
+		if (!strcmp(value, "relative"))
+			symbol_conf.filter_relative = true;
+		else if (!strcmp(value, "absolute"))
+			symbol_conf.filter_relative = false;
+		else
+			return -1;
+	}
+
+	return 0;
+}
