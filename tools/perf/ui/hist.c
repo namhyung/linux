@@ -21,10 +21,13 @@ static int __hpp__fmt(struct perf_hpp *hpp, struct hist_entry *he,
 
 	if (fmt_percent) {
 		double percent = 0.0;
+		u64 total = hists->stats.total_period;
 
-		if (hists->stats.total_period)
-			percent = 100.0 * get_field(he) /
-				  hists->stats.total_period;
+		if (symbol_conf.filter_relative)
+			total = hists->stats.total_filtered_period;
+
+		if (total)
+			percent = 100.0 * get_field(he) / total;
 
 		ret = print_fn(hpp->buf, hpp->size, fmt, percent);
 	} else
@@ -40,6 +43,9 @@ static int __hpp__fmt(struct perf_hpp *hpp, struct hist_entry *he,
 		list_for_each_entry(pair, &he->pairs.head, pairs.node) {
 			u64 period = get_field(pair);
 			u64 total = pair->hists->stats.total_period;
+
+			if (symbol_conf.filter_relative)
+				total = pair->hists->stats.total_filtered_period;
 
 			if (!total)
 				continue;
