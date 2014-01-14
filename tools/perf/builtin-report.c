@@ -71,6 +71,16 @@ static int report__config(const char *var, const char *value, void *cb)
 		rep->min_percent = strtof(value, NULL);
 		return 0;
 	}
+	if (!strcmp(var, "report.percentage")) {
+		if (!strcmp(value, "relative"))
+			symbol_conf.filter_relative = true;
+		else if (!strcmp(value, "absolute"))
+			symbol_conf.filter_relative = false;
+		else
+			return -1;
+
+		return 0;
+	}
 
 	return perf_default_config(var, value, cb);
 }
