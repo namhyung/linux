@@ -115,6 +115,15 @@ Default is to monitor all CPUS.
 	Sort by key(s): pid, comm, dso, symbol, parent, srcline, weight,
 	local_weight, abort, in_tx, transaction
 
+--fields=::
+	Specify output field - multiple keys can be specified in CSV format.
+	Following fields are available:
+	overhead, overhead_sys, overhead_us, sample and period.
+	Also it can contain any sort key(s).
+
+	By default, every sort keys not specified in --field will be appended
+	automatically.
+
 -n::
 --show-nr-samples::
 	Show a column with the number of samples.
