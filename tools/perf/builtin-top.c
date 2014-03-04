@@ -1085,6 +1085,8 @@ int cmd_top(int argc, const char **argv, const char *prefix __maybe_unused)
 	OPT_STRING('s', "sort", &sort_order, "key[,key2...]",
 		   "sort by key(s): pid, comm, dso, symbol, parent, weight, local_weight,"
 		   " abort, in_tx, transaction"),
+	OPT_STRING(0, "field", &field_order, "key[,keys...]",
+		   "output field(s): overhead, period, sample plus all of sort keys"),
 	OPT_BOOLEAN('n', "show-nr-samples", &symbol_conf.show_nr_samples,
 		    "Show a column with the number of samples"),
 	OPT_CALLBACK_NOOPT('g', NULL, &top.record_opts,
@@ -1202,6 +1204,11 @@ int cmd_top(int argc, const char **argv, const char *prefix __maybe_unused)
 		return -1;
 
 	sort__setup_elide(stdout);
+
+	if (setup_output_field() < 0) {
+		parse_options_usage(top_usage, options, "F", 1);
+		goto out_delete_evlist;
+	}
 
 	get_term_dimensions(&top.winsize);
 	if (top.print_entries == 0) {
