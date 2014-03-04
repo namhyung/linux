@@ -340,8 +340,6 @@ LIST_HEAD(perf_hpp__sort_list);
 #undef __HPP_ENTRY_RAW_FN
 
 
-void perf_hpp__setup_output_field(void);
-
 void perf_hpp__init(void)
 {
 	struct list_head *list;
@@ -356,6 +354,12 @@ void perf_hpp__init(void)
 		if (fmt->sort_list.next == NULL)
 			INIT_LIST_HEAD(&fmt->sort_list);
 	}
+
+	/*
+	 * If user specified field order, no need to setup default fields.
+	 */
+	if (field_order)
+		return;
 
 	perf_hpp__column_enable(PERF_HPP__OVERHEAD);
 
@@ -379,8 +383,6 @@ void perf_hpp__init(void)
 	list = &perf_hpp__format[PERF_HPP__OVERHEAD].sort_list;
 	if (list_empty(list))
 		list_add(list, &perf_hpp__sort_list);
-
-	perf_hpp__setup_output_field();
 }
 
 void perf_hpp__column_register(struct perf_hpp_fmt *format)
@@ -405,8 +407,37 @@ void perf_hpp__setup_output_field(void)
 
 	/* append sort keys to output field */
 	perf_hpp__for_each_sort_list(fmt) {
-		if (list_empty(&fmt->list))
-			perf_hpp__column_register(fmt);
+		if (!list_empty(&fmt->list))
+			continue;
+
+		/*
+		 * sort entry fields are dynamically created,
+		 * so they can share a same sort key even though
+		 * the list is empty.
+		 */
+		if (perf_hpp__is_sort_entry(fmt)) {
+			struct perf_hpp_fmt *pos;
+
+			perf_hpp__for_each_format(pos) {
+				if (perf_hpp__same_sort_entry(pos, fmt))
+					goto next;
+			}
+		}
+
+		perf_hpp__column_register(fmt);
+next:
+		continue;
+	}
+}
+
+void perf_hpp__append_sort_keys(void)
+{
+	struct perf_hpp_fmt *fmt;
+
+	/* append output fields to sort keys */
+	perf_hpp__for_each_format(fmt) {
+		if (list_empty(&fmt->sort_list))
+			perf_hpp__register_sort_field(fmt);
 	}
 }
 

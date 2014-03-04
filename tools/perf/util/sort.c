@@ -12,6 +12,7 @@ const char	default_branch_sort_order[] = "comm,dso_from,symbol_from,dso_to,symbo
 const char	default_mem_sort_order[] = "local_weight,mem,sym,dso,symbol_daddr,dso_daddr,snoop,tlb,locked";
 const char	default_top_sort_order[] = "dso,symbol";
 const char	*sort_order;
+const char	*field_order;
 regex_t		ignore_callees_regex;
 int		have_ignore_callees = 0;
 int		sort__need_collapse = 0;
@@ -1056,6 +1057,20 @@ struct hpp_sort_entry {
 	struct sort_entry *se;
 };
 
+bool perf_hpp__same_sort_entry(struct perf_hpp_fmt *a, struct perf_hpp_fmt *b)
+{
+	struct hpp_sort_entry *hse_a;
+	struct hpp_sort_entry *hse_b;
+
+	if (!perf_hpp__is_sort_entry(a) || !perf_hpp__is_sort_entry(b))
+		return false;
+
+	hse_a = container_of(a, struct hpp_sort_entry, hpp);
+	hse_b = container_of(b, struct hpp_sort_entry, hpp);
+
+	return hse_a->se == hse_b->se;
+}
+
 static int __sort__hpp_header(struct perf_hpp_fmt *fmt, struct perf_hpp *hpp,
 			      struct perf_evsel *evsel)
 {
@@ -1091,14 +1106,15 @@ static int __sort__hpp_entry(struct perf_hpp_fmt *fmt, struct perf_hpp *hpp,
 	return hse->se->se_snprintf(he, hpp->buf, hpp->size, len);
 }
 
-static int __sort_dimension__add_hpp(struct sort_dimension *sd)
+static struct hpp_sort_entry *
+__sort_dimension__alloc_hpp(struct sort_dimension *sd)
 {
 	struct hpp_sort_entry *hse;
 
 	hse = malloc(sizeof(*hse));
 	if (hse == NULL) {
 		pr_err("Memory allocation failed\n");
-		return -1;
+		return NULL;
 	}
 
 	hse->se = sd->entry;
@@ -1114,7 +1130,33 @@ static int __sort_dimension__add_hpp(struct sort_dimension *sd)
 	INIT_LIST_HEAD(&hse->hpp.list);
 	INIT_LIST_HEAD(&hse->hpp.sort_list);
 
+	return hse;
+}
+
+bool perf_hpp__is_sort_entry(struct perf_hpp_fmt *format)
+{
+	return format->header == __sort__hpp_header;
+}
+
+static int __sort_dimension__add_hpp_sort(struct sort_dimension *sd)
+{
+	struct hpp_sort_entry *hse = __sort_dimension__alloc_hpp(sd);
+
+	if (hse == NULL)
+		return -1;
+
 	perf_hpp__register_sort_field(&hse->hpp);
+	return 0;
+}
+
+static int __sort_dimension__add_hpp_output(struct sort_dimension *sd)
+{
+	struct hpp_sort_entry *hse = __sort_dimension__alloc_hpp(sd);
+
+	if (hse == NULL)
+		return -1;
+
+	perf_hpp__column_register(&hse->hpp);
 	return 0;
 }
 
@@ -1123,7 +1165,7 @@ static int __sort_dimension__add(struct sort_dimension *sd, enum sort_type idx)
 	if (sd->taken)
 		return 0;
 
-	if (__sort_dimension__add_hpp(sd) < 0)
+	if (__sort_dimension__add_hpp_sort(sd) < 0)
 		return -1;
 
 	if (sd->entry->se_collapse)
@@ -1144,6 +1186,28 @@ static int __hpp_dimension__add(struct hpp_dimension *hd)
 		hd->taken = 1;
 
 		perf_hpp__register_sort_field(hd->fmt);
+	}
+	return 0;
+}
+
+static int __sort_dimension__add_output(struct sort_dimension *sd)
+{
+	if (sd->taken)
+		return 0;
+
+	if (__sort_dimension__add_hpp_output(sd) < 0)
+		return -1;
+
+	sd->taken = 1;
+	return 0;
+}
+
+static int __hpp_dimension__add_output(struct hpp_dimension *hd)
+{
+	if (!hd->taken) {
+		hd->taken = 1;
+
+		perf_hpp__column_register(hd->fmt);
 	}
 	return 0;
 }
@@ -1240,8 +1304,17 @@ int setup_sorting(void)
 	char *tmp, *tok, *str;
 	int ret = 0;
 
-	if (sort_order == NULL)
+	if (sort_order == NULL) {
+		if (field_order) {
+			/*
+			 * If user specified field order but no sort order,
+			 * we'll honor it and not add default sort orders.
+			 */
+			return 0;
+		}
+
 		sort_order = get_default_sort_order();
+	}
 
 	str = strdup(sort_order);
 	if (str == NULL) {
@@ -1327,4 +1400,103 @@ void sort__setup_elide(FILE *output)
 
 	list_for_each_entry(se, &hist_entry__sort_list, list)
 		se->elide = false;
+}
+
+static int output_field_add(char *tok)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(common_sort_dimensions); i++) {
+		struct sort_dimension *sd = &common_sort_dimensions[i];
+
+		if (strncasecmp(tok, sd->name, strlen(tok)))
+			continue;
+
+		return __sort_dimension__add_output(sd);
+	}
+
+	for (i = 0; i < ARRAY_SIZE(hpp_sort_dimensions); i++) {
+		struct hpp_dimension *hd = &hpp_sort_dimensions[i];
+
+		if (strncasecmp(tok, hd->name, strlen(tok)))
+			continue;
+
+		return __hpp_dimension__add_output(hd);
+	}
+
+	for (i = 0; i < ARRAY_SIZE(bstack_sort_dimensions); i++) {
+		struct sort_dimension *sd = &bstack_sort_dimensions[i];
+
+		if (strncasecmp(tok, sd->name, strlen(tok)))
+			continue;
+
+		return __sort_dimension__add_output(sd);
+	}
+
+	for (i = 0; i < ARRAY_SIZE(memory_sort_dimensions); i++) {
+		struct sort_dimension *sd = &memory_sort_dimensions[i];
+
+		if (strncasecmp(tok, sd->name, strlen(tok)))
+			continue;
+
+		return __sort_dimension__add_output(sd);
+	}
+
+	return -ESRCH;
+}
+
+static void reset_dimensions(void)
+{
+	unsigned int i;
+
+	for (i = 0; i < ARRAY_SIZE(common_sort_dimensions); i++)
+		common_sort_dimensions[i].taken = 0;
+
+	for (i = 0; i < ARRAY_SIZE(hpp_sort_dimensions); i++)
+		hpp_sort_dimensions[i].taken = 0;
+
+	for (i = 0; i < ARRAY_SIZE(bstack_sort_dimensions); i++)
+		bstack_sort_dimensions[i].taken = 0;
+
+	for (i = 0; i < ARRAY_SIZE(memory_sort_dimensions); i++)
+		memory_sort_dimensions[i].taken = 0;
+}
+
+int setup_output_field(void)
+{
+	char *tmp, *tok, *str;
+	int ret = 0;
+
+	if (field_order == NULL)
+		goto out;
+
+	reset_dimensions();
+
+	str = strdup(field_order);
+	if (str == NULL) {
+		error("Not enough memory to setup output fields");
+		return -ENOMEM;
+	}
+
+	for (tok = strtok_r(str, ", ", &tmp);
+			tok; tok = strtok_r(NULL, ", ", &tmp)) {
+		ret = output_field_add(tok);
+		if (ret == -EINVAL) {
+			error("Invalid --fields key: `%s'", tok);
+			break;
+		} else if (ret == -ESRCH) {
+			error("Unknown --fields key: `%s'", tok);
+			break;
+		}
+	}
+
+	free(str);
+
+out:
+	/* copy sort keys to output fields */
+	perf_hpp__setup_output_field();
+	/* and then copy output fields to sort keys */
+	perf_hpp__append_sort_keys();
+
+	return ret;
 }
