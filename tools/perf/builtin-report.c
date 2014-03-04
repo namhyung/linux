@@ -772,6 +772,8 @@ int cmd_report(int argc, const char **argv, const char *prefix __maybe_unused)
 		   " dso_to, dso_from, symbol_to, symbol_from, mispredict,"
 		   " weight, local_weight, mem, symbol_daddr, dso_daddr, tlb, "
 		   "snoop, locked, abort, in_tx, transaction"),
+	OPT_STRING('F', "field", &field_order, "key[,keys...]",
+		   "output field(s): overhead, period, sample plus all of sort keys"),
 	OPT_BOOLEAN(0, "showcpuutilization", &symbol_conf.show_cpu_utilization,
 		    "Show sample percentage for different cpu modes"),
 	OPT_STRING('p', "parent", &parent_pattern, "regex",
@@ -974,6 +976,12 @@ repeat:
 	}
 
 	sort__setup_elide(stdout);
+
+	if (setup_output_field() < 0) {
+		parse_options_usage(report_usage, options, "F", 1);
+		goto error;
+	}
+
 
 	ret = __cmd_report(&report);
 	if (ret == K_SWITCH_INPUT_DATA) {
