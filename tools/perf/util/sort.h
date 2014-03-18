@@ -133,6 +133,7 @@ enum sort_mode {
 	SORT_MODE__NORMAL,
 	SORT_MODE__BRANCH,
 	SORT_MODE__MEMORY,
+	SORT_MODE__TOP,
 };
 
 enum sort_type {
