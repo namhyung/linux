@@ -365,7 +365,7 @@ static void set_max_cpu_num(void)
 		goto out;
 
 	/* get the highest possible cpu number for a sparse allocation */
-	snprintf(path, PATH_MAX, "%s/devices/system/cpu/kernel_max", mnt);
+	snprintf(path, PATH_MAX, "%s/devices/system/cpu/possible", mnt);
 
 	ret = get_max_num(path, &max_cpu_num);
 
