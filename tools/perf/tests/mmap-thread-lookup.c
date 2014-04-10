@@ -189,7 +189,7 @@ static int mmap_events(synth_cb synth)
 
 		thread__find_addr_map(thread, machine,
 				      PERF_RECORD_MISC_USER, MAP__FUNCTION,
-				      (u64) (td->map + 1), &al);
+				      (unsigned long) (td->map + 1), &al);
 
 		if (!al.map) {
 			pr_debug("failed, couldn't find map\n");
@@ -197,7 +197,7 @@ static int mmap_events(synth_cb synth)
 			break;
 		}
 
-		pr_debug("map %p, addr %lx\n", al.map, al.map->start);
+		pr_debug("map %p, addr %" PRIx64 "\n", al.map, al.map->start);
 	}
 
 	machine__delete_threads(machine);
