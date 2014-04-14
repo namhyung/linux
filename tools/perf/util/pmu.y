@@ -8,6 +8,7 @@
 #include <linux/list.h>
 #include <linux/bitmap.h>
 #include <string.h>
+#include "util.h"
 #include "pmu.h"
 
 extern int perf_pmu_lex (void);

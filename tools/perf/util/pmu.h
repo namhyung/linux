@@ -4,6 +4,7 @@
 #include <linux/bitops.h>
 #include <linux/perf_event.h>
 #include <stdbool.h>
+#include "util.h"
 
 enum {
 	PERF_PMU_FORMAT_VALUE_CONFIG,

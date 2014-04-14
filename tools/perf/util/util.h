@@ -69,7 +69,7 @@
 #include <sys/ioctl.h>
 #include <inttypes.h>
 #include <linux/magic.h>
-#include "types.h"
+#include <linux/types.h>
 #include <sys/ttydefaults.h>
 #include <api/fs/debugfs.h>
 #include <termios.h>
@@ -128,6 +128,9 @@ void put_tracing_file(char *file);
 #define __attribute__(x)
 #endif
 #endif
+
+#define DECLARE_BITMAP(name,bits) \
+	unsigned long name[BITS_TO_LONGS(bits)]
 
 #define PERF_GTK_DSO  "libperf-gtk.so"
 

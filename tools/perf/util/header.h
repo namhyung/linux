@@ -4,8 +4,9 @@
 #include <linux/perf_event.h>
 #include <sys/types.h>
 #include <stdbool.h>
-#include "types.h"
+#include <linux/types.h>
 #include "event.h"
+#include "util.h"
 
 #include <linux/bitmap.h>
 
