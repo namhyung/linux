@@ -1150,6 +1150,9 @@ int cmd_diff(int argc, const char **argv, const char *prefix __maybe_unused)
 	if (setup_sorting() < 0)
 		usage_with_options(diff_usage, options);
 
+	if (setup_output_field() < 0)
+		usage_with_options(diff_usage, options);
+
 	setup_pager();
 
 	sort__setup_elide(NULL);
