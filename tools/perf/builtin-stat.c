@@ -144,6 +144,8 @@ static struct timespec		ref_time;
 static struct cpu_map		*aggr_map;
 static int			(*aggr_get_id)(struct cpu_map *m, int cpu);
 
+int stat_run;
+
 static volatile int done = 0;
 
 struct perf_stat {
@@ -1674,7 +1676,7 @@ int cmd_stat(int argc, const char **argv, const char *prefix __maybe_unused)
 		"perf stat [<options>] [<command>]",
 		NULL
 	};
-	int status = -EINVAL, run_idx;
+	int status = -EINVAL;
 	const char *mode;
 
 	setlocale(LC_ALL, "");
@@ -1812,10 +1814,10 @@ int cmd_stat(int argc, const char **argv, const char *prefix __maybe_unused)
 	signal(SIGABRT, skip_signal);
 
 	status = 0;
-	for (run_idx = 0; forever || run_idx < run_count; run_idx++) {
+	for (stat_run = 1; forever || stat_run <= run_count; stat_run++) {
 		if (run_count != 1 && verbose)
 			fprintf(output, "[ perf stat: executing run #%d ... ]\n",
-				run_idx + 1);
+				stat_run);
 
 		status = run_perf_stat(argc, argv);
 		if (forever && status != -1) {

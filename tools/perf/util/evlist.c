@@ -1037,6 +1037,7 @@ out_err:
 	return err;
 }
 
+extern int stat_run;
 int perf_evlist__prepare_workload(struct perf_evlist *evlist, struct target *target,
 				  const char *argv[], bool pipe_output,
 				  void (*exec_error)(int signo, siginfo_t *info, void *ucontext))
@@ -1061,6 +1062,8 @@ int perf_evlist__prepare_workload(struct perf_evlist *evlist, struct target *tar
 	}
 
 	if (!evlist->workload.pid) {
+		char buf[32];
+
 		if (pipe_output)
 			dup2(2, 1);
 
@@ -1081,7 +1084,12 @@ int perf_evlist__prepare_workload(struct perf_evlist *evlist, struct target *tar
 		if (read(go_pipe[0], &bf, 1) == -1)
 			perror("unable to read pipe");
 
-		execvp(argv[0], (char **)argv);
+		if (stat_run) {
+			snprintf(buf, sizeof(buf), "%d", stat_run);
+			setenv("PERF_STAT_RUN", buf, 1);
+		}
+
+		execvpe(argv[0], (char **)argv, environ);
 
 		if (exec_error) {
 			union sigval val;
