@@ -1829,7 +1829,7 @@ static bool symbol__read_kptr_restrict(void)
 
 int symbol__init(void)
 {
-	const char *symfs;
+	char *symfs;
 
 	if (symbol_conf.initialized)
 		return 0;
@@ -1862,23 +1862,40 @@ int symbol__init(void)
 		       symbol_conf.sym_list_str, "symbol") < 0)
 		goto out_free_comm_list;
 
-	/*
-	 * A path to symbols of "/" is identical to ""
-	 * reset here for simplicity.
-	 */
-	symfs = realpath(symbol_conf.symfs, NULL);
-	if (symfs == NULL)
-		symfs = symbol_conf.symfs;
-	if (strcmp(symfs, "/") == 0)
-		symbol_conf.symfs = "";
-	if (symfs != symbol_conf.symfs)
-		free((void *)symfs);
+	if (*symbol_conf.symfs) {
+		symfs = realpath(symbol_conf.symfs, NULL);
+		if (symfs == NULL)
+			symfs = symbol_conf.symfs;
+
+		/*
+		 * A path to symbols of "/" is identical to ""
+		 * reset here for simplicity.
+		 */
+		if (strcmp(symfs, "/") == 0)
+			symbol_conf.symfs = "";
+
+		/* ensure symfs ends with '/' */
+		if (symfs[strlen(symfs)-1] != '/') {
+			char *tmp = realloc(symfs, strlen(symfs) + 2);
+			if (tmp == NULL)
+				goto out_free;
+
+			tmp[strlen(tmp)+1] = '\0';
+			tmp[strlen(tmp)] = '/';
+
+			symbol_conf.symfs = tmp;
+		} else {
+			free(symfs);
+		}
+	}
 
 	symbol_conf.kptr_restrict = symbol__read_kptr_restrict();
 
 	symbol_conf.initialized = true;
 	return 0;
 
+out_free:
+	free(symfs);
 out_free_comm_list:
 	strlist__delete(symbol_conf.comm_list);
 out_free_dso_list:
