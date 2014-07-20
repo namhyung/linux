@@ -1864,8 +1864,11 @@ int symbol__init(void)
 
 	if (*symbol_conf.symfs) {
 		symfs = realpath(symbol_conf.symfs, NULL);
-		if (symfs == NULL)
-			symfs = symbol_conf.symfs;
+		if (symfs == NULL) {
+			pr_err("cannot apply symfs: %s: %s\n",
+			       symbol_conf.symfs, strerror(errno));
+			return -1;
+		}
 
 		/*
 		 * A path to symbols of "/" is identical to ""
