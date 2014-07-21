@@ -695,7 +695,7 @@ int cmd_kmem(int argc, const char **argv, const char *prefix __maybe_unused)
 	if (!argc)
 		usage_with_options(kmem_usage, kmem_options);
 
-	symbol__init();
+	symbol__init(NULL);
 
 	if (!strncmp(argv[0], "rec", 3)) {
 		return __cmd_record(argc, argv);

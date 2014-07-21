@@ -1740,11 +1740,6 @@ int cmd_script(int argc, const char **argv, const char *prefix __maybe_unused)
 		exit(-1);
 	}
 
-	if (symbol__init() < 0)
-		return -1;
-	if (!script_name)
-		setup_pager();
-
 	session = perf_session__new(&file, false, &script.tool);
 	if (session == NULL)
 		return -ENOMEM;
@@ -1756,6 +1751,11 @@ int cmd_script(int argc, const char **argv, const char *prefix __maybe_unused)
 	}
 
 	script.session = session;
+
+	if (symbol__init(&session->header.env) < 0)
+		return -1;
+	if (!script_name)
+		setup_pager();
 
 	if (cpu_list) {
 		if (perf_session__cpu_bitmap(session, cpu_list, cpu_bitmap))

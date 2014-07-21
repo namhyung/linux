@@ -1981,7 +1981,7 @@ int cmd_timechart(int argc, const char **argv,
 		return -1;
 	}
 
-	symbol__init();
+	symbol__init(NULL);
 
 	if (argc && !strncmp(argv[0], "rec", 3)) {
 		argc = parse_options(argc, argv, record_options, record_usage,
