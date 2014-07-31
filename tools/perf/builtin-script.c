@@ -1718,8 +1718,6 @@ int cmd_script(int argc, const char **argv, const char *prefix __maybe_unused)
 		exit(-1);
 	}
 
-	if (symbol__init() < 0)
-		return -1;
 	if (!script_name)
 		setup_pager();
 
@@ -1732,6 +1730,9 @@ int cmd_script(int argc, const char **argv, const char *prefix __maybe_unused)
 		if (header_only)
 			goto out_delete;
 	}
+
+	if (symbol__init() < 0)
+		goto out_delete;
 
 	script.session = session;
 
