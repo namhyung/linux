@@ -197,14 +197,16 @@ static int __hpp__sort_acc(struct hist_entry *a, struct hist_entry *b,
 	s64 ret = 0;
 
 	if (symbol_conf.cumulate_callchain) {
-		/*
-		 * Put caller above callee when they have equal period.
-		 */
 		ret = field_cmp(get_field(a), get_field(b));
 		if (ret)
 			return ret;
 
+		/*
+		 * Put caller above callee when they have equal period.
+		 */
 		ret = b->callchain->max_depth - a->callchain->max_depth;
+		if (callchain_param.order == ORDER_CALLER)
+			ret = -ret;
 	}
 	return ret;
 }
