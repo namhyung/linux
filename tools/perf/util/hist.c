@@ -736,7 +736,28 @@ iter_add_single_cumulative_entry(struct hist_entry_iter *iter,
 	iter->he = he;
 	he_cache[iter->curr++] = he;
 
-	callchain_append(he->callchain, &callchain_cursor, sample->period);
+	if (callchain_param.order == ORDER_CALLER) {
+		struct callchain_cursor cursor;
+		int nr = callchain_cursor.nr;
+
+		/*
+		 * When --children with -g caller, it just adds noise to
+		 * self entries.  Just adding last node (self) is enough
+		 * and it'd privide a consistent view with other (cumulative)
+		 * entries.
+		 */
+		while (--nr) {
+			callchain_cursor_advance(&callchain_cursor);
+		}
+
+		BUG_ON(callchain_cursor.nr != callchain_cursor.pos + 1);
+
+		callchain_cursor_snapshot(&cursor, &callchain_cursor);
+
+		callchain_append(he->callchain, &cursor, sample->period);
+	} else {
+		callchain_append(he->callchain, &callchain_cursor, sample->period);
+	}
 
 	/*
 	 * We need to re-initialize the cursor since callchain_append()
