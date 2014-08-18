@@ -896,6 +896,12 @@ int cmd_record(int argc, const char **argv, const char *prefix __maybe_unused)
 	if (rec->evlist == NULL)
 		return -ENOMEM;
 
+	err = perf_evlist__add_dummy(rec->evlist);
+	if (err < 0) {
+		perf_evlist__delete(rec->evlist);
+		return err;
+	}
+
 	perf_config(perf_record_config, rec);
 
 	argc = parse_options(argc, argv, record_options, record_usage,
