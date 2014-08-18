@@ -45,8 +45,17 @@ struct record {
 	long			samples;
 };
 
-static int record__write(struct record *rec, void *bf, size_t size)
+static int record__write(struct record *rec, void *bf, size_t size, int idx)
 {
+	if (rec->file.is_multi && idx >= 0) {
+		int ret = perf_data_file__write_multi(rec->session->file,
+						      bf, size, idx);
+		if (ret < 0)
+			pr_err("failed to write perf data, error: %m\n");
+
+		return ret;
+	}
+
 	if (perf_data_file__write(rec->session->file, bf, size) < 0) {
 		pr_err("failed to write perf data, error: %m\n");
 		return -1;
@@ -62,11 +71,12 @@ static int process_synthesized_event(struct perf_tool *tool,
 				     struct machine *machine __maybe_unused)
 {
 	struct record *rec = container_of(tool, struct record, tool);
-	return record__write(rec, event, event->header.size);
+	return record__write(rec, event, event->header.size, -1);
 }
 
-static int record__mmap_read(struct record *rec, struct perf_mmap *md)
+static int record__mmap_read(struct record *rec, int idx)
 {
+	struct perf_mmap *md = &rec->evlist->mmap[idx];
 	unsigned int head = perf_mmap__read_head(md);
 	unsigned int old = md->prev;
 	unsigned char *data = md->base + page_size;
@@ -86,7 +96,7 @@ static int record__mmap_read(struct record *rec, struct perf_mmap *md)
 		size = md->mask + 1 - (old & md->mask);
 		old += size;
 
-		if (record__write(rec, buf, size) < 0) {
+		if (record__write(rec, buf, size, idx) < 0) {
 			rc = -1;
 			goto out;
 		}
@@ -96,7 +106,7 @@ static int record__mmap_read(struct record *rec, struct perf_mmap *md)
 	size = head - old;
 	old += size;
 
-	if (record__write(rec, buf, size) < 0) {
+	if (record__write(rec, buf, size, idx) < 0) {
 		rc = -1;
 		goto out;
 	}
@@ -182,6 +192,9 @@ try_again:
 		goto out;
 	}
 
+	if (rec->file.is_multi)
+		perf_data_file__open_multi(&rec->file, evlist->nr_mmaps);
+
 	session->evlist = evlist;
 	perf_session__set_id_hdr_size(session);
 out:
@@ -245,7 +258,7 @@ static int record__mmap_read_all(struct record *rec)
 
 	for (i = 0; i < rec->evlist->nr_mmaps; i++) {
 		if (rec->evlist->mmap[i].base) {
-			if (record__mmap_read(rec, &rec->evlist->mmap[i]) != 0) {
+			if (record__mmap_read(rec, i) != 0) {
 				rc = -1;
 				goto out;
 			}
@@ -257,7 +270,8 @@ static int record__mmap_read_all(struct record *rec)
 	 * at least one event.
 	 */
 	if (bytes_written != rec->bytes_written)
-		rc = record__write(rec, &finished_round_event, sizeof(finished_round_event));
+		rc = record__write(rec, &finished_round_event,
+				   sizeof(finished_round_event), -1);
 
 out:
 	return rc;
