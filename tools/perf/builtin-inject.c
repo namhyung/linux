@@ -375,8 +375,10 @@ static int __cmd_inject(struct perf_inject *inject)
 		}
 	}
 
-	if (!file_out->is_pipe)
-		lseek(file_out->fd, session->header.data_offset, SEEK_SET);
+	if (!file_out->is_pipe) {
+		lseek(perf_data_file__fd(file_out), session->header.data_offset,
+		      SEEK_SET);
+	}
 
 	ret = perf_session__process_events(session, &inject->tool);
 
@@ -385,7 +387,8 @@ static int __cmd_inject(struct perf_inject *inject)
 			perf_header__set_feat(&session->header,
 					      HEADER_BUILD_ID);
 		session->header.data_size = inject->bytes_written;
-		perf_session__write_header(session, session->evlist, file_out->fd, true);
+		perf_session__write_header(session, session->evlist,
+					   perf_data_file__fd(file_out), true);
 	}
 
 	return ret;
