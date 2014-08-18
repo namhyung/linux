@@ -4,6 +4,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <string.h>
+#include <dirent.h>
 
 #include "data.h"
 #include "util.h"
@@ -25,7 +26,7 @@ static bool check_pipe(struct perf_data_file *file)
 	}
 
 	if (is_pipe)
-		file->fd = fd;
+		file->single_fd = fd;
 
 	return file->is_pipe = is_pipe;
 }
@@ -49,10 +50,17 @@ static int check_backup(struct perf_data_file *file)
 static int open_file_read(struct perf_data_file *file)
 {
 	struct stat st;
+	char path[PATH_MAX];
 	int fd;
 	char sbuf[STRERR_BUFSIZE];
 
-	fd = open(file->path, O_RDONLY);
+	strcpy(path, file->path);
+	if (file->is_multi) {
+		if (path__join(path, sizeof(path), file->path, "perf.header") < 0)
+			return -1;
+	}
+
+	fd = open(path, O_RDONLY);
 	if (fd < 0) {
 		int err = errno;
 
@@ -90,12 +98,26 @@ static int open_file_read(struct perf_data_file *file)
 static int open_file_write(struct perf_data_file *file)
 {
 	int fd;
+	char path[PATH_MAX];
 	char sbuf[STRERR_BUFSIZE];
 
 	if (check_backup(file))
 		return -1;
 
-	fd = open(file->path, O_CREAT|O_RDWR|O_TRUNC, S_IRUSR|S_IWUSR);
+	strcpy(path, file->path);
+
+	if (file->is_multi) {
+		if (mkdir(file->path, S_IRUSR | S_IWUSR) < 0) {
+			pr_err("cannot create data directory `%s': %s\n",
+			       file->path, strerror_r(errno, sbuf, sizeof(sbuf)));
+			return -1;
+		}
+
+		if (path__join(path, sizeof(path), file->path, "perf.header") < 0)
+			return -1;
+	}
+
+	fd = open(path, O_CREAT|O_RDWR|O_TRUNC, S_IRUSR|S_IWUSR);
 
 	if (fd < 0)
 		pr_err("failed to open %s : %s\n", file->path,
@@ -111,7 +133,7 @@ static int open_file(struct perf_data_file *file)
 	fd = perf_data_file__is_read(file) ?
 	     open_file_read(file) : open_file_write(file);
 
-	file->fd = fd;
+	file->single_fd = fd;
 	return fd < 0 ? -1 : 0;
 }
 
@@ -121,18 +143,122 @@ int perf_data_file__open(struct perf_data_file *file)
 		return 0;
 
 	if (!file->path)
-		file->path = "perf.data";
+		file->path = file->is_multi ? "perf.data.dir" : "perf.data";
 
 	return open_file(file);
 }
 
+static int scandir_filter(const struct dirent *d)
+{
+	return !prefixcmp(d->d_name, "perf.data.");
+}
+
+static int open_file_read_multi(struct perf_data_file *file, int nr)
+{
+	int i, n;
+	int ret;
+	struct dirent **list;
+
+	file->multi_fd = malloc(nr * sizeof(int));
+	if (file->multi_fd == NULL)
+		return -ENOMEM;
+
+	n = scandir(file->path, &list, scandir_filter, versionsort);
+	if (n < 0) {
+		ret = -errno;
+		pr_err("cannot find multi-data file\n");
+		return ret;
+	}
+
+	for (i = 0; i < n; i++) {
+		ret = open(list[i]->d_name, O_RDONLY);
+		if (ret < 0)
+			goto out_err;
+
+		file->multi_fd[i] = ret;
+	}
+
+	free(list);
+	return 0;
+
+out_err:
+	while (--i >= 0)
+		close(file->multi_fd[i]);
+
+	zfree(&file->multi_fd);
+	free(list);
+	return ret;
+}
+
+static int open_file_write_multi(struct perf_data_file *file, int nr)
+{
+	int i;
+	int ret;
+	char path[PATH_MAX];
+
+	file->multi_fd = malloc(nr * sizeof(int));
+	if (file->multi_fd == NULL)
+		return -ENOMEM;
+
+	for (i = 0; i < nr; i++) {
+		scnprintf(path, sizeof(path), "%s/perf.data.%d", file->path, i);
+		ret = open(path, O_RDWR|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR);
+		if (ret < 0)
+			goto out_err;
+
+		file->multi_fd[i] = ret;
+	}
+
+	return 0;
+
+out_err:
+	while (--i >= 0)
+		close(file->multi_fd[i]);
+
+	zfree(&file->multi_fd);
+	return ret;
+}
+
+int perf_data_file__open_multi(struct perf_data_file *file, int nr)
+{
+	int ret;
+
+	if (!file->is_multi)
+		return -EINVAL;
+
+	ret = perf_data_file__is_read(file) ?
+		open_file_read_multi(file, nr) : open_file_write_multi(file, nr);
+
+	file->nr_multi = nr;
+	return ret;
+}
+
 void perf_data_file__close(struct perf_data_file *file)
 {
-	close(file->fd);
+	if (file->is_multi) {
+		int i;
+
+		for (i = 0; i < file->nr_multi; i++)
+			close(file->multi_fd[i]);
+
+		zfree(&file->multi_fd);
+		zfree((char **)&file->path);
+	}
+
+	close(file->single_fd);
 }
 
 ssize_t perf_data_file__write(struct perf_data_file *file,
 			      void *buf, size_t size)
 {
-	return writen(file->fd, buf, size);
+	return writen(file->single_fd, buf, size);
+}
+
+ssize_t perf_data_file__write_multi(struct perf_data_file *file,
+				    void *buf, size_t size, int idx)
+{
+	if (!file->is_multi)
+		return -1;
+
+	return writen(file->multi_fd[idx], buf, size);
 }

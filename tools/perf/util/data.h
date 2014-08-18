@@ -10,7 +10,10 @@ enum perf_data_mode {
 
 struct perf_data_file {
 	const char		*path;
-	int			 fd;
+	int			 single_fd;
+	int			 nr_multi;
+	int			*multi_fd;
+	bool			 is_multi;
 	bool			 is_pipe;
 	bool			 force;
 	unsigned long		 size;
@@ -32,9 +35,19 @@ static inline int perf_data_file__is_pipe(struct perf_data_file *file)
 	return file->is_pipe;
 }
 
+static inline int perf_data_file__is_multi(struct perf_data_file *file)
+{
+	return file->is_multi;
+}
+
 static inline int perf_data_file__fd(struct perf_data_file *file)
 {
-	return file->fd;
+	return file->single_fd;
+}
+
+static inline int perf_data_file__multi_fd(struct perf_data_file *file, int idx)
+{
+	return file->multi_fd[idx];
 }
 
 static inline unsigned long perf_data_file__size(struct perf_data_file *file)
@@ -43,8 +56,11 @@ static inline unsigned long perf_data_file__size(struct perf_data_file *file)
 }
 
 int perf_data_file__open(struct perf_data_file *file);
+int perf_data_file__open_multi(struct perf_data_file *file, int nr);
 void perf_data_file__close(struct perf_data_file *file);
 ssize_t perf_data_file__write(struct perf_data_file *file,
 			      void *buf, size_t size);
+ssize_t perf_data_file__write_multi(struct perf_data_file *file,
+				    void *buf, size_t size, int idx);
 
 #endif /* __PERF_DATA_H */
