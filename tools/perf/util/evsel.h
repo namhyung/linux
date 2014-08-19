@@ -87,6 +87,7 @@ struct perf_evsel {
 	bool			immediate;
 	bool			system_wide;
 	bool			tracking;
+	bool			dummy;
 	/* parse modifier helper */
 	int			exclude_GH;
 	int			nr_members;

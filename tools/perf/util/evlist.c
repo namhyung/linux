@@ -172,7 +172,7 @@ int perf_evlist__add_default(struct perf_evlist *evlist)
 
 	event_attr_init(&attr);
 
-	evsel = perf_evsel__new(&attr);
+	evsel = perf_evsel__new_idx(&attr, evlist->nr_entries + 1);
 	if (evsel == NULL)
 		goto error;
 
@@ -208,6 +208,7 @@ int perf_evlist__add_dummy(struct perf_evlist *evlist)
 	if (!evsel->name)
 		goto error_free;
 
+	evsel->dummy = true;
 	perf_evlist__add(evlist, evsel);
 	return 0;
 error_free:
@@ -443,7 +444,7 @@ static int perf_evlist__alloc_pollfd(struct perf_evlist *evlist)
 			nfds += nr_cpus * nr_threads;
 	}
 
-	evlist->pollfd = malloc(sizeof(struct pollfd) * nfds);
+	evlist->pollfd = malloc(sizeof(struct pollfd) * nfds * 2);
 	return evlist->pollfd != NULL ? 0 : -ENOMEM;
 }
 
@@ -683,6 +684,14 @@ static void __perf_evlist__munmap(struct perf_evlist *evlist, int idx)
 	}
 }
 
+static void __perf_evlist__dummy_munmap(struct perf_evlist *evlist, int idx)
+{
+	if (evlist->dummy_mmap[idx].base != NULL) {
+		munmap(evlist->dummy_mmap[idx].base, 128 * 1024 + page_size);
+		evlist->dummy_mmap[idx].base = NULL;
+	}
+}
+
 void perf_evlist__munmap(struct perf_evlist *evlist)
 {
 	int i;
@@ -694,6 +703,14 @@ void perf_evlist__munmap(struct perf_evlist *evlist)
 		__perf_evlist__munmap(evlist, i);
 
 	zfree(&evlist->mmap);
+
+	if (evlist->dummy_mmap == NULL)
+		return;
+
+	for (i = 0; i < evlist->nr_mmaps; i++)
+		__perf_evlist__dummy_munmap(evlist, i);
+
+	zfree(&evlist->dummy_mmap);
 }
 
 static int perf_evlist__alloc_mmap(struct perf_evlist *evlist)
@@ -702,7 +719,10 @@ static int perf_evlist__alloc_mmap(struct perf_evlist *evlist)
 	if (cpu_map__empty(evlist->cpus))
 		evlist->nr_mmaps = thread_map__nr(evlist->threads);
 	evlist->mmap = zalloc(evlist->nr_mmaps * sizeof(struct perf_mmap));
-	return evlist->mmap != NULL ? 0 : -ENOMEM;
+	if (evlist->mmap == NULL)
+		return -ENOMEM;
+	evlist->dummy_mmap = zalloc(evlist->nr_mmaps * sizeof(struct perf_mmap));
+	return evlist->dummy_mmap != NULL ? 0 : -ENOMEM;
 }
 
 struct mmap_params {
@@ -713,14 +733,21 @@ struct mmap_params {
 static int __perf_evlist__mmap(struct perf_evlist *evlist, int idx,
 			       struct mmap_params *mp, int fd)
 {
-	evlist->mmap[idx].prev = 0;
-	evlist->mmap[idx].mask = mp->mask;
-	evlist->mmap[idx].base = mmap(NULL, evlist->mmap_len, mp->prot,
-				      MAP_SHARED, fd, 0);
-	if (evlist->mmap[idx].base == MAP_FAILED) {
+	struct perf_mmap *pmmap;
+	size_t len = idx >= 0 ? evlist->mmap_len : 128 * 1024 + page_size;
+
+	if (idx < 0)
+		pmmap = &evlist->dummy_mmap[-idx - 1];
+	else
+		pmmap = &evlist->mmap[idx];
+
+	pmmap->prev = 0;
+	pmmap->mask = len - page_size - 1;
+	pmmap->base = mmap(NULL, len, mp->prot, MAP_SHARED, fd, 0);
+	if (pmmap->base == MAP_FAILED) {
 		pr_debug2("failed to mmap perf event ring buffer, error %d\n",
 			  errno);
-		evlist->mmap[idx].base = NULL;
+		pmmap->base = NULL;
 		return -1;
 	}
 
@@ -742,7 +769,10 @@ static int perf_evlist__mmap_per_evsel(struct perf_evlist *evlist, int idx,
 
 		fd = FD(evsel, cpu, thread);
 
-		if (*output == -1) {
+		if (evsel->dummy) {
+			if (__perf_evlist__mmap(evlist, -idx - 1, mp, fd) < 0)
+				return -1;
+		} else if (*output == -1) {
 			*output = fd;
 			if (__perf_evlist__mmap(evlist, idx, mp, *output) < 0)
 				return -1;

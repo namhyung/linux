@@ -107,7 +107,7 @@ static int open_file_write(struct perf_data_file *file)
 	strcpy(path, file->path);
 
 	if (file->is_multi) {
-		if (mkdir(file->path, S_IRUSR | S_IWUSR) < 0) {
+		if (mkdir(file->path, S_IRWXU) < 0) {
 			pr_err("cannot create data directory `%s': %s\n",
 			       file->path, strerror_r(errno, sbuf, sizeof(sbuf)));
 			return -1;
@@ -242,7 +242,6 @@ void perf_data_file__close(struct perf_data_file *file)
 			close(file->multi_fd[i]);
 
 		zfree(&file->multi_fd);
-		zfree((char **)&file->path);
 	}
 
 	close(file->single_fd);

@@ -76,13 +76,22 @@ static int process_synthesized_event(struct perf_tool *tool,
 
 static int record__mmap_read(struct record *rec, int idx)
 {
-	struct perf_mmap *md = &rec->evlist->mmap[idx];
-	unsigned int head = perf_mmap__read_head(md);
-	unsigned int old = md->prev;
-	unsigned char *data = md->base + page_size;
+	struct perf_mmap *md;
+	unsigned int head;
+	unsigned int old;
+	unsigned char *data;
 	unsigned long size;
 	void *buf;
 	int rc = 0;
+
+	if (idx < 0)
+		md = &rec->evlist->dummy_mmap[-idx - 1];
+	else
+		md = &rec->evlist->mmap[idx];
+
+	head = perf_mmap__read_head(md);
+	old = md->prev;
+	data = md->base + page_size;
 
 	if (old == head)
 		return 0;
@@ -257,6 +266,12 @@ static int record__mmap_read_all(struct record *rec)
 	int rc = 0;
 
 	for (i = 0; i < rec->evlist->nr_mmaps; i++) {
+		if (rec->evlist->dummy_mmap[i].base) {
+			if (record__mmap_read(rec, -i - 1) != 0) {
+				rc = -1;
+				goto out;
+			}
+		}
 		if (rec->evlist->mmap[i].base) {
 			if (record__mmap_read(rec, i) != 0) {
 				rc = -1;
@@ -915,10 +930,13 @@ int cmd_record(int argc, const char **argv, const char *prefix __maybe_unused)
 	if (rec->evlist == NULL)
 		return -ENOMEM;
 
-	err = perf_evlist__add_dummy(rec->evlist);
-	if (err < 0) {
-		perf_evlist__delete(rec->evlist);
-		return err;
+	rec->file.is_multi = true;
+	if (rec->file.is_multi) {
+		err = perf_evlist__add_dummy(rec->evlist);
+		if (err < 0) {
+			perf_evlist__delete(rec->evlist);
+			return err;
+		}
 	}
 
 	perf_config(perf_record_config, rec);
@@ -949,7 +967,7 @@ int cmd_record(int argc, const char **argv, const char *prefix __maybe_unused)
 	if (rec->no_buildid_cache || rec->no_buildid)
 		disable_buildid_cache();
 
-	if (rec->evlist->nr_entries == 0 &&
+	if (rec->evlist->nr_entries == !!(rec->file.is_multi) &&
 	    perf_evlist__add_default(rec->evlist) < 0) {
 		pr_err("Not enough memory for event selector list\n");
 		goto out_symbol_exit;

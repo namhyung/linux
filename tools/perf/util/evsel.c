@@ -614,7 +614,7 @@ void perf_evsel__config(struct perf_evsel *evsel, struct record_opts *opts)
 		attr->sample_period = 0;
 	}
 
-	if (opts->no_samples)
+	if (opts->no_samples || evsel->dummy)
 		attr->sample_freq = 0;
 
 	if (opts->inherit_stat)

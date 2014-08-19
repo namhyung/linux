@@ -41,6 +41,7 @@ struct perf_evlist {
 	} workload;
 	bool		 overwrite;
 	struct perf_mmap *mmap;
+	struct perf_mmap *dummy_mmap;
 	struct pollfd	 *pollfd;
 	struct thread_map *threads;
 	struct cpu_map	  *cpus;
