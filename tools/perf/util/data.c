@@ -38,9 +38,16 @@ static int check_backup(struct perf_data_file *file)
 	if (!stat(file->path, &st) && st.st_size) {
 		/* TODO check errors properly */
 		char oldname[PATH_MAX];
+		bool is_dir = S_ISDIR(st.st_mode);
+
 		snprintf(oldname, sizeof(oldname), "%s.old",
 			 file->path);
-		unlink(oldname);
+
+		if (is_dir)
+			rm_rf(oldname);
+		else
+			unlink(oldname);
+
 		rename(file->path, oldname);
 	}
 
