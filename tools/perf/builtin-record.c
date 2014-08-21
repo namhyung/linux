@@ -215,14 +215,32 @@ static int process_buildids(struct record *rec)
 	struct perf_data_file *file  = &rec->file;
 	struct perf_session *session = rec->session;
 	u64 start = session->header.data_offset;
+	int i, ret = 0;
 
 	u64 size = lseek(perf_data_file__fd(file), 0, SEEK_CUR);
 	if (size == 0)
 		return 0;
 
-	return __perf_session__process_events(session, start,
+	if (!file->is_multi) {
+		return __perf_session__process_events(session, start,
 					      size - start,
 					      size, &build_id__mark_dso_hit_ops);
+	}
+
+	for (i = 0; i < file->nr_multi; i++) {
+		int fd = perf_data_file__multi_fd(file, i);
+
+		size = lseek(fd, 0, SEEK_END);
+		if (size == 0)
+			continue;
+
+		ret = ___perf_session__process_events(session, fd, 0, size, size,
+						      &build_id__mark_dso_hit_ops);
+		if (ret < 0)
+			break;
+	}
+
+	return ret;
 }
 
 static void perf_event__synthesize_guest_os(struct machine *machine, void *data)
