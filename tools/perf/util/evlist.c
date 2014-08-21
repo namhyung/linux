@@ -193,7 +193,7 @@ int perf_evlist__add_dummy(struct perf_evlist *evlist)
 {
 	struct perf_event_attr attr = {
 		.type = PERF_TYPE_SOFTWARE,
-		.config = PERF_COUNT_SW_DUMMY,
+		.config = PERF_COUNT_SW_ALIGNMENT_FAULTS,
 	};
 	struct perf_evsel *evsel;
 
