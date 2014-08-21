@@ -165,6 +165,7 @@ static int open_file_read_multi(struct perf_data_file *file, int nr)
 	int i, n;
 	int ret;
 	struct dirent **list;
+	char path[PATH_MAX];
 
 	file->multi_fd = malloc(nr * sizeof(int));
 	if (file->multi_fd == NULL)
@@ -178,7 +179,8 @@ static int open_file_read_multi(struct perf_data_file *file, int nr)
 	}
 
 	for (i = 0; i < n; i++) {
-		ret = open(list[i]->d_name, O_RDONLY);
+		path__join(path, sizeof(path), file->path, list[i]->d_name);
+		ret = open(path, O_RDONLY);
 		if (ret < 0)
 			goto out_err;
 

@@ -99,6 +99,11 @@ struct perf_session *perf_session__new(struct perf_data_file *file,
 	machines__init(&session->machines);
 
 	if (file) {
+		struct stat st;
+
+		if (!stat(input_name, &st) && S_ISDIR(st.st_mode))
+			file->is_multi = true;
+
 		if (perf_data_file__open(file))
 			goto out_delete;
 
@@ -1317,18 +1322,41 @@ int perf_session__process_events(struct perf_session *session,
 				 struct perf_tool *tool)
 {
 	u64 size = perf_data_file__size(session->file);
-	int err;
+	int err = 0;
 
 	if (perf_session__register_idle_thread(session) == NULL)
 		return -ENOMEM;
 
-	if (!perf_data_file__is_pipe(session->file))
+	if (perf_data_file__is_pipe(session->file))
+		err = __perf_session__process_pipe_events(session, tool);
+	else if (!session->file->is_multi)
 		err = __perf_session__process_events(session,
 						     session->header.data_offset,
 						     session->header.data_size,
 						     size, tool);
-	else
-		err = __perf_session__process_pipe_events(session, tool);
+	else {
+		int i;
+
+		err = __perf_session__process_events(session,
+						     session->header.data_offset,
+						     session->header.data_size,
+						     size, tool);
+		if (err < 0)
+			return err;
+
+		for (i = 0; i < session->file->nr_multi; i++) {
+			int fd = perf_data_file__multi_fd(session->file, i);
+
+			size = lseek(fd, 0, SEEK_END);
+			if (size == 0)
+				continue;
+
+			err = ___perf_session__process_events(session, fd, 0, size, size,
+							      tool);
+			if (err < 0)
+				break;
+		}
+	}
 
 	return err;
 }
