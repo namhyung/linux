@@ -70,6 +70,8 @@ struct map_groups {
 	struct maps	 maps[MAP__NR_TYPES];
 	struct machine	 *machine;
 	atomic_t	 refcnt;
+	u64		 timestamp;
+	struct list_head list;
 };
 
 struct map_groups *map_groups__new(struct machine *machine);

@@ -16,6 +16,7 @@ struct thread {
 	struct rb_node	 	rb_node;
 	struct list_head 	tid_node;
 	struct map_groups	*mg;
+	struct list_head	mg_list;
 	pid_t			pid_; /* Not all tools update this */
 	pid_t			tid;
 	pid_t			ppid;
@@ -71,6 +72,8 @@ struct comm *thread__exec_comm(const struct thread *thread);
 struct comm *thread__comm_by_time(const struct thread *thread, u64 timestamp);
 const char *thread__comm_str(const struct thread *thread);
 const char *thread__comm_str_by_time(const struct thread *thread, u64 timestamp);
+struct map_groups *thread__get_map_groups(struct thread *thread, u64 timestamp);
+int thread__set_map_groups(struct thread *thread, struct map_groups *mg, u64 timestamp);
 void thread__insert_map(struct thread *thread, struct map *map);
 int thread__fork(struct thread *thread, struct thread *parent, u64 timestamp);
 size_t thread__fprintf(struct thread *thread, FILE *fp);
