@@ -53,7 +53,9 @@ static inline int thread__set_comm(struct thread *thread, const char *comm,
 int thread__comm_len(struct thread *thread);
 struct comm *thread__comm(const struct thread *thread);
 struct comm *thread__exec_comm(const struct thread *thread);
+struct comm *thread__comm_time(const struct thread *thread, u64 timestamp);
 const char *thread__comm_str(const struct thread *thread);
+const char *thread__comm_time_str(const struct thread *thread, u64 timestamp);
 void thread__insert_map(struct thread *thread, struct map *map);
 int thread__fork(struct thread *thread, struct thread *parent, u64 timestamp);
 size_t thread__fprintf(struct thread *thread, FILE *fp);

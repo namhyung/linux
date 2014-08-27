@@ -103,6 +103,22 @@ struct comm *thread__exec_comm(const struct thread *thread)
 	return last;
 }
 
+struct comm *thread__comm_time(const struct thread *thread, u64 timestamp)
+{
+	struct comm *comm;
+
+	list_for_each_entry(comm, &thread->comm_list, list) {
+		if (timestamp >= comm->start)
+			return comm;
+	}
+
+	if (list_empty(&thread->comm_list))
+		return NULL;
+
+	return list_last_entry(&thread->comm_list, struct comm, list);
+}
+
+/* CHECKME: time should always be 0 if event aren't ordered */
 int __thread__set_comm(struct thread *thread, const char *str, u64 timestamp,
 		       bool exec)
 {
@@ -118,7 +134,13 @@ int __thread__set_comm(struct thread *thread, const char *str, u64 timestamp,
 		new = comm__new(str, timestamp, exec);
 		if (!new)
 			return -ENOMEM;
-		list_add(&new->list, &thread->comm_list);
+
+		/* sort by time */
+		list_for_each_entry(curr, &thread->comm_list, list) {
+			if (timestamp >= curr->start)
+				break;
+		}
+		list_add_tail(&new->list, &curr->list);
 
 		if (exec)
 			unwind__flush_access(thread);
@@ -132,6 +154,16 @@ int __thread__set_comm(struct thread *thread, const char *str, u64 timestamp,
 const char *thread__comm_str(const struct thread *thread)
 {
 	const struct comm *comm = thread__comm(thread);
+
+	if (!comm)
+		return NULL;
+
+	return comm__str(comm);
+}
+
+const char *thread__comm_time_str(const struct thread *thread, u64 timestamp)
+{
+	const struct comm *comm = thread__comm_time(thread, timestamp);
 
 	if (!comm)
 		return NULL;
