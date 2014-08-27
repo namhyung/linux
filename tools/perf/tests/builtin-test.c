@@ -158,6 +158,10 @@ static struct test {
 		.func = test__switch_tracking,
 	},
 	{
+		.desc = "Test thread comm handling",
+		.func = test__thread_comm,
+	},
+	{
 		.func = NULL,
 	},
 };
