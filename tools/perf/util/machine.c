@@ -312,7 +312,7 @@ static void machine__update_thread_pid(struct machine *machine,
 		goto out_err;
 
 	if (!leader->mg)
-		leader->mg = map_groups__new();
+		thread__set_map_groups(leader, map_groups__new(), 0);
 
 	if (!leader->mg)
 		goto out_err;
