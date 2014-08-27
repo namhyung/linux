@@ -1997,6 +1997,16 @@ single_entry:
 						env);
 	}
 
+	if (nr_entries == 2) {
+		struct perf_evsel *evsel;
+
+		evsel = perf_evlist__first(evlist);
+		if (evsel->dummy) {
+			evsel = perf_evsel__next(evsel);
+			return perf_evsel__hists_browse(evsel, 1, help, false,
+							hbt, min_pcnt, env);
+		}
+	}
 	if (symbol_conf.event_group) {
 		struct perf_evsel *pos;
 

@@ -321,6 +321,9 @@ static int perf_evlist__tty_browse_hists(struct perf_evlist *evlist,
 		struct hists *hists = &pos->hists;
 		const char *evname = perf_evsel__name(pos);
 
+		if (pos->dummy)
+			continue;
+
 		if (symbol_conf.event_group &&
 		    !perf_evsel__is_group_leader(pos))
 			continue;
@@ -726,6 +729,9 @@ repeat:
 	}
 
 	report.session = session;
+
+	if (perf_header__has_feat(&session->header, HEADER_MULTI_FILE))
+		perf_evlist__first(session->evlist)->dummy = true;
 
 	has_br_stack = perf_header__has_feat(&session->header,
 					     HEADER_BRANCH_STACK);
