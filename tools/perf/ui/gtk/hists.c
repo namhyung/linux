@@ -317,6 +317,9 @@ int perf_evlist__gtk_browse_hists(struct perf_evlist *evlist,
 		char buf[512];
 		size_t size = sizeof(buf);
 
+		if (perf_evsel__is_dummy_tracking(pos))
+			continue;
+
 		if (symbol_conf.event_group) {
 			if (!perf_evsel__is_group_leader(pos))
 				continue;

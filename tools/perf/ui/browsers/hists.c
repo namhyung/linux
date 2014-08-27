@@ -1998,11 +1998,15 @@ int perf_evlist__tui_browse_hists(struct perf_evlist *evlist, const char *help,
 				  struct perf_session_env *env)
 {
 	int nr_entries = evlist->nr_entries;
+	struct perf_evsel *first = perf_evlist__first(evlist);
+
+	if (perf_evsel__is_dummy_tracking(first)) {
+		first = perf_evsel__next(first);
+		nr_entries--;
+	}
 
 single_entry:
 	if (nr_entries == 1) {
-		struct perf_evsel *first = perf_evlist__first(evlist);
-
 		return perf_evsel__hists_browse(first, nr_entries, help,
 						false, hbt, min_pcnt,
 						env);
@@ -2013,6 +2017,8 @@ single_entry:
 
 		nr_entries = 0;
 		evlist__for_each(evlist, pos) {
+			if (perf_evsel__is_dummy_tracking(pos))
+				continue;
 			if (perf_evsel__is_group_leader(pos))
 				nr_entries++;
 		}

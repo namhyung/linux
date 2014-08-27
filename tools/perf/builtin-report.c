@@ -318,6 +318,9 @@ static int perf_evlist__tty_browse_hists(struct perf_evlist *evlist,
 		struct hists *hists = evsel__hists(pos);
 		const char *evname = perf_evsel__name(pos);
 
+		if (perf_evsel__is_dummy_tracking(pos))
+			continue;
+
 		if (symbol_conf.event_group &&
 		    !perf_evsel__is_group_leader(pos))
 			continue;
