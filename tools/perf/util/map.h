@@ -61,7 +61,9 @@ struct map_groups {
 	struct rb_root	 maps[MAP__NR_TYPES];
 	struct list_head removed_maps[MAP__NR_TYPES];
 	struct machine	 *machine;
+	u64		 timestamp;
 	int		 refcnt;
+	struct list_head list;
 };
 
 struct map_groups *map_groups__new(struct machine *machine);

@@ -10,13 +10,64 @@
 #include "comm.h"
 #include "unwind.h"
 
+struct map_groups *thread__get_map_groups(struct thread *thread, u64 timestamp)
+{
+	struct map_groups *mg;
+
+	list_for_each_entry(mg, &thread->mg_list, list)
+		if (timestamp >= mg->timestamp)
+			return mg;
+
+	return thread->mg;
+}
+
+int thread__set_map_groups(struct thread *thread, struct map_groups *mg,
+			   u64 timestamp)
+{
+	struct list_head *pos;
+	struct map_groups *old;
+
+	if (mg == NULL)
+		return -ENOMEM;
+
+	/*
+	 * Only a leader thread can have map groups list - others
+	 * reference it through map_groups__get.  This means the
+	 * leader thread will have one more refcnt than others.
+	 */
+	if (thread->tid != thread->pid_)
+		return -EINVAL;
+
+	if (thread->mg) {
+		BUG_ON(thread->mg->refcnt <= 1);
+		map_groups__put(thread->mg);
+	}
+
+	/* sort by time */
+	list_for_each(pos, &thread->mg_list) {
+		old = list_entry(pos, struct map_groups, list);
+		if (timestamp > old->timestamp)
+			break;
+	}
+
+	list_add_tail(&mg->list, pos);
+	mg->timestamp = timestamp;
+
+	/* set current ->mg to most recent one */
+	thread->mg = list_first_entry(&thread->mg_list, struct map_groups, list);
+	/* increase one more refcnt for current */
+	map_groups__get(thread->mg);
+
+	return 0;
+}
+
 int thread__init_map_groups(struct thread *thread, struct machine *machine)
 {
 	struct thread *leader;
 	pid_t pid = thread->pid_;
 
 	if (pid == thread->tid || pid == -1) {
-		thread->mg = map_groups__new(machine);
+		thread__set_map_groups(thread, map_groups__new(machine), 0);
 	} else {
 		leader = machine__findnew_thread(machine, pid, pid);
 		if (leader)
@@ -39,6 +90,7 @@ struct thread *thread__new(pid_t pid, pid_t tid)
 		thread->cpu = -1;
 		INIT_LIST_HEAD(&thread->comm_list);
 		INIT_LIST_HEAD(&thread->node);
+		INIT_LIST_HEAD(&thread->mg_list);
 
 		if (unwind__prepare_access(thread) < 0)
 			goto err_thread;
@@ -67,12 +119,18 @@ err_thread:
 void thread__delete(struct thread *thread)
 {
 	struct comm *comm, *tmp;
+	struct map_groups *mg, *tmp_mg;
 
 	thread_stack__free(thread);
 
 	if (thread->mg) {
 		map_groups__put(thread->mg);
 		thread->mg = NULL;
+	}
+	/* only leader threads have mg list */
+	list_for_each_entry_safe(mg, tmp_mg, &thread->mg_list, list) {
+		list_del(&mg->list);
+		map_groups__put(mg);
 	}
 	list_for_each_entry_safe(comm, tmp, &thread->comm_list, list) {
 		list_del(&comm->list);
@@ -148,6 +206,26 @@ int __thread__set_comm(struct thread *thread, const char *str, u64 timestamp,
 
 		if (exec)
 			unwind__flush_access(thread);
+	}
+
+	if (exec) {
+		struct machine *machine;
+
+		BUG_ON(thread->mg == NULL || thread->mg->machine == NULL);
+
+		if (thread->tid != thread->pid_) {
+			/* now it'll be a new leader */
+			thread->pid_ = thread->tid;
+
+			/* current mg of leader thread needs one more refcnt */
+			map_groups__get(thread->mg);
+
+			thread__set_map_groups(thread, thread->mg,
+					       thread->mg->timestamp);
+		}
+
+		machine = thread->mg->machine;
+		thread__set_map_groups(thread, map_groups__new(machine), timestamp);
 	}
 
 	thread->comm_set = true;

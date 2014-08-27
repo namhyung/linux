@@ -422,6 +422,7 @@ void map_groups__init(struct map_groups *mg, struct machine *machine)
 	}
 	mg->machine = machine;
 	mg->refcnt = 1;
+	mg->timestamp = 0;
 }
 
 static void maps__delete(struct rb_root *maps)

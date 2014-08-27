@@ -750,6 +750,8 @@ void thread__find_addr_map(struct thread *thread, u8 cpumode,
 		return;
 	}
 
+	BUG_ON(mg == NULL);
+
 	if (cpumode == PERF_RECORD_MISC_KERNEL && perf_host) {
 		al->level = 'k';
 		mg = &machine->kmaps;
