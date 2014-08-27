@@ -167,6 +167,10 @@ static struct test {
 		.func = test__fdarray__add,
 	},
 	{
+		.desc = "Test thread comm handling",
+		.func = test__thread_comm,
+	},
+	{
 		.func = NULL,
 	},
 };
