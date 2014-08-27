@@ -162,23 +162,25 @@ static int scandir_filter(const struct dirent *d)
 
 static int open_file_read_multi(struct perf_data_file *file, int nr)
 {
-	int i, n;
+	int i;
 	int ret;
 	struct dirent **list;
 	char path[PATH_MAX];
 
-	file->multi_fd = malloc(nr * sizeof(int));
-	if (file->multi_fd == NULL)
-		return -ENOMEM;
-
-	n = scandir(file->path, &list, scandir_filter, versionsort);
-	if (n < 0) {
+	nr = scandir(file->path, &list, scandir_filter, versionsort);
+	if (nr < 0) {
 		ret = -errno;
 		pr_err("cannot find multi-data file\n");
 		return ret;
 	}
 
-	for (i = 0; i < n; i++) {
+	file->multi_fd = malloc(nr * sizeof(int));
+	if (file->multi_fd == NULL) {
+		free(list);
+		return -ENOMEM;
+	}
+
+	for (i = 0; i < nr; i++) {
 		path__join(path, sizeof(path), file->path, list[i]->d_name);
 		ret = open(path, O_RDONLY);
 		if (ret < 0)
@@ -186,6 +188,7 @@ static int open_file_read_multi(struct perf_data_file *file, int nr)
 
 		file->multi_fd[i] = ret;
 	}
+	file->nr_multi = nr;
 
 	free(list);
 	return 0;
@@ -217,6 +220,7 @@ static int open_file_write_multi(struct perf_data_file *file, int nr)
 
 		file->multi_fd[i] = ret;
 	}
+	file->nr_multi = nr;
 
 	return 0;
 
@@ -238,7 +242,6 @@ int perf_data_file__open_multi(struct perf_data_file *file, int nr)
 	ret = perf_data_file__is_read(file) ?
 		open_file_read_multi(file, nr) : open_file_write_multi(file, nr);
 
-	file->nr_multi = nr;
 	return ret;
 }
 

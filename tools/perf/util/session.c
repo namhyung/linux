@@ -101,8 +101,14 @@ struct perf_session *perf_session__new(struct perf_data_file *file,
 	if (file) {
 		struct stat st;
 
-		if (!stat(input_name, &st) && S_ISDIR(st.st_mode))
+		if (!stat(input_name, &st) && S_ISDIR(st.st_mode)) {
 			file->is_multi = true;
+			/*
+			 * FIXME: there's a segfault when processing a
+			 * multi-file session with the ordered_events.
+			 */
+			tool->ordered_events = false;
+		}
 
 		if (perf_data_file__open(file))
 			goto out_delete;
@@ -115,6 +121,8 @@ struct perf_session *perf_session__new(struct perf_data_file *file,
 
 			perf_session__set_id_hdr_size(session);
 			perf_session__set_comm_exec(session);
+
+			perf_data_file__open_multi(file, 0);
 		}
 	}
 
