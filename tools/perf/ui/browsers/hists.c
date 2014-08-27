@@ -2128,12 +2128,15 @@ out:
 	return key;
 }
 
-static bool filter_group_entries(struct ui_browser *browser __maybe_unused,
-				 void *entry)
+static bool filter_entries(struct ui_browser *browser __maybe_unused,
+			   void *entry)
 {
 	struct perf_evsel *evsel = list_entry(entry, struct perf_evsel, node);
 
 	if (symbol_conf.event_group && !perf_evsel__is_group_leader(evsel))
+		return true;
+
+	if (perf_evsel__is_dummy_tracking(evsel))
 		return true;
 
 	return false;
@@ -2152,7 +2155,7 @@ static int __perf_evlist__tui_browse_hists(struct perf_evlist *evlist,
 			.refresh    = ui_browser__list_head_refresh,
 			.seek	    = ui_browser__list_head_seek,
 			.write	    = perf_evsel_menu__write,
-			.filter	    = filter_group_entries,
+			.filter	    = filter_entries,
 			.nr_entries = nr_entries,
 			.priv	    = evlist,
 		},
@@ -2179,27 +2182,42 @@ int perf_evlist__tui_browse_hists(struct perf_evlist *evlist, const char *help,
 				  struct perf_session_env *env)
 {
 	int nr_entries = evlist->nr_entries;
+	struct perf_evsel *first = perf_evlist__first(evlist);
+	struct perf_evsel *pos;
 
 single_entry:
 	if (nr_entries == 1) {
-		struct perf_evsel *first = perf_evlist__first(evlist);
-
 		return perf_evsel__hists_browse(first, nr_entries, help,
 						false, hbt, min_pcnt,
 						env);
 	}
 
 	if (symbol_conf.event_group) {
-		struct perf_evsel *pos;
 
 		nr_entries = 0;
 		evlist__for_each(evlist, pos) {
+			if (perf_evsel__is_dummy_tracking(pos))
+				continue;
 			if (perf_evsel__is_group_leader(pos))
 				nr_entries++;
 		}
 
 		if (nr_entries == 1)
 			goto single_entry;
+	}
+
+	evlist__for_each(evlist, pos) {
+		if (perf_evsel__is_dummy_tracking(pos))
+			nr_entries--;
+	}
+
+	if (nr_entries == 1) {
+		evlist__for_each(evlist, pos) {
+			if (!perf_evsel__is_dummy_tracking(pos)) {
+				first = pos;
+				goto single_entry;
+			}
+		}
 	}
 
 	return __perf_evlist__tui_browse_hists(evlist, nr_entries, help,
