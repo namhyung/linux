@@ -1605,7 +1605,7 @@ static bool symbol__match_regex(struct symbol *sym, regex_t *regex)
 
 static void ip__resolve_ams(struct thread *thread,
 			    struct addr_map_symbol *ams,
-			    u64 ip)
+			    u64 ip, u64 timestamp)
 {
 	struct addr_location al;
 
@@ -1617,7 +1617,8 @@ static void ip__resolve_ams(struct thread *thread,
 	 * Thus, we have to try consecutively until we find a match
 	 * or else, the symbol is unknown
 	 */
-	thread__find_cpumode_addr_location(thread, MAP__FUNCTION, ip, &al);
+	thread__find_cpumode_addr_location_by_time(thread, MAP__FUNCTION,
+						   ip, &al, timestamp);
 
 	ams->addr = ip;
 	ams->al_addr = al.addr;
@@ -1625,21 +1626,25 @@ static void ip__resolve_ams(struct thread *thread,
 	ams->map = al.map;
 }
 
-static void ip__resolve_data(struct thread *thread,
-			     u8 m, struct addr_map_symbol *ams, u64 addr)
+static void ip__resolve_data(struct thread *thread, u8 m,
+			     struct addr_map_symbol *ams,
+			     u64 addr, u64 timestamp)
 {
 	struct addr_location al;
 
 	memset(&al, 0, sizeof(al));
 
-	thread__find_addr_location(thread, m, MAP__VARIABLE, addr, &al);
+	thread__find_addr_location_by_time(thread, m, MAP__VARIABLE,
+					   addr, &al, timestamp);
+
 	if (al.map == NULL) {
 		/*
 		 * some shared data regions have execute bit set which puts
 		 * their mapping in the MAP__FUNCTION type array.
 		 * Check there as a fallback option before dropping the sample.
 		 */
-		thread__find_addr_location(thread, m, MAP__FUNCTION, addr, &al);
+		thread__find_addr_location_by_time(thread, m, MAP__FUNCTION,
+						   addr, &al, timestamp);
 	}
 
 	ams->addr = addr;
@@ -1656,8 +1661,9 @@ struct mem_info *sample__resolve_mem(struct perf_sample *sample,
 	if (!mi)
 		return NULL;
 
-	ip__resolve_ams(al->thread, &mi->iaddr, sample->ip);
-	ip__resolve_data(al->thread, al->cpumode, &mi->daddr, sample->addr);
+	ip__resolve_ams(al->thread, &mi->iaddr, sample->ip, sample->time);
+	ip__resolve_data(al->thread, al->cpumode, &mi->daddr, sample->addr,
+			 sample->time);
 	mi->data_src.val = sample->data_src;
 
 	return mi;
@@ -1731,8 +1737,10 @@ struct branch_info *sample__resolve_bstack(struct perf_sample *sample,
 		return NULL;
 
 	for (i = 0; i < bs->nr; i++) {
-		ip__resolve_ams(al->thread, &bi[i].to, bs->entries[i].to);
-		ip__resolve_ams(al->thread, &bi[i].from, bs->entries[i].from);
+		ip__resolve_ams(al->thread, &bi[i].to,
+				bs->entries[i].to, sample->time);
+		ip__resolve_ams(al->thread, &bi[i].from,
+				bs->entries[i].from, sample->time);
 		bi[i].flags = bs->entries[i].flags;
 	}
 	return bi;

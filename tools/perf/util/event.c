@@ -831,16 +831,14 @@ int perf_event__process(struct perf_tool *tool __maybe_unused,
 	return machine__process_event(machine, event, sample);
 }
 
-void thread__find_addr_map(struct thread *thread, u8 cpumode,
-			   enum map_type type, u64 addr,
-			   struct addr_location *al)
+static void map_groups__find_addr_map(struct map_groups *mg, u8 cpumode,
+				      enum map_type type, u64 addr,
+				      struct addr_location *al)
 {
-	struct map_groups *mg = thread->mg;
 	struct machine *machine = mg->machine;
 	bool load_map = false;
 
 	al->machine = machine;
-	al->thread = thread;
 	al->addr = addr;
 	al->cpumode = cpumode;
 	al->filtered = 0;
@@ -909,11 +907,51 @@ try_again:
 	}
 }
 
+void thread__find_addr_map(struct thread *thread, u8 cpumode,
+			   enum map_type type, u64 addr,
+			   struct addr_location *al)
+{
+	al->thread = thread;
+	map_groups__find_addr_map(thread->mg, cpumode, type, addr, al);
+}
+
+void thread__find_addr_map_by_time(struct thread *thread, u8 cpumode,
+				   enum map_type type, u64 addr,
+				   struct addr_location *al, u64 timestamp)
+{
+	struct map_groups *mg;
+
+	if (perf_has_index)
+		mg = thread__get_map_groups(thread, timestamp);
+	else
+		mg = thread->mg;
+
+	al->thread = thread;
+	map_groups__find_addr_map(mg, cpumode, type, addr, al);
+}
+
 void thread__find_addr_location(struct thread *thread,
 				u8 cpumode, enum map_type type, u64 addr,
 				struct addr_location *al)
 {
 	thread__find_addr_map(thread, cpumode, type, addr, al);
+	if (al->map != NULL)
+		al->sym = map__find_symbol(al->map, al->addr,
+					   thread->mg->machine->symbol_filter);
+	else
+		al->sym = NULL;
+}
+
+void thread__find_addr_location_by_time(struct thread *thread, u8 cpumode,
+					enum map_type type, u64 addr,
+					struct addr_location *al, u64 timestamp)
+{
+	if (perf_has_index)
+		thread__find_addr_map_by_time(thread, cpumode, type, addr, al,
+					      timestamp);
+	else
+		thread__find_addr_map(thread, cpumode, type, addr, al);
+
 	if (al->map != NULL)
 		al->sym = map__find_symbol(al->map, al->addr,
 					   thread->mg->machine->symbol_filter);
@@ -950,7 +988,9 @@ int perf_event__preprocess_sample(const union perf_event *event,
 	    machine->vmlinux_maps[MAP__FUNCTION] == NULL)
 		machine__create_kernel_maps(machine);
 
-	thread__find_addr_map(thread, cpumode, MAP__FUNCTION, sample->ip, al);
+	thread__find_addr_map_by_time(thread, cpumode, MAP__FUNCTION,
+				      sample->ip, al, sample->time);
+
 	dump_printf(" ...... dso: %s\n",
 		    al->map ? al->map->dso->long_name :
 			al->level == 'H' ? "[hypervisor]" : "<not found>");
@@ -1025,10 +1065,11 @@ void perf_event__preprocess_sample_addr(union perf_event *event,
 {
 	u8 cpumode = event->header.misc & PERF_RECORD_MISC_CPUMODE_MASK;
 
-	thread__find_addr_map(thread, cpumode, MAP__FUNCTION, sample->addr, al);
+	thread__find_addr_map_by_time(thread, cpumode, MAP__FUNCTION,
+				      sample->addr, al, sample->time);
 	if (!al->map)
-		thread__find_addr_map(thread, cpumode, MAP__VARIABLE,
-				      sample->addr, al);
+		thread__find_addr_map_by_time(thread, cpumode, MAP__VARIABLE,
+					      sample->addr, al, sample->time);
 
 	al->cpu = sample->cpu;
 	al->sym = NULL;
