@@ -63,6 +63,7 @@ int test__fdarray__add(void);
 int test__kmod_path__parse(void);
 int test__thread_comm(void);
 int test__thread_lookup_time(void);
+int test__thread_mg_time(void);
 
 #if defined(__x86_64__) || defined(__i386__) || defined(__arm__)
 #ifdef HAVE_DWARF_UNWIND_SUPPORT
