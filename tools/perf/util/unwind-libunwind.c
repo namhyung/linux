@@ -284,8 +284,8 @@ static struct map *find_map(unw_word_t ip, struct unwind_info *ui)
 {
 	struct addr_location al;
 
-	thread__find_addr_map(ui->thread, PERF_RECORD_MISC_USER,
-			      MAP__FUNCTION, ip, &al);
+	thread__find_addr_map_time(ui->thread, PERF_RECORD_MISC_USER,
+				   MAP__FUNCTION, ip, &al, ui->sample->time);
 	return al.map;
 }
 
@@ -374,8 +374,8 @@ static int access_dso_mem(struct unwind_info *ui, unw_word_t addr,
 	struct addr_location al;
 	ssize_t size;
 
-	thread__find_addr_map(ui->thread, PERF_RECORD_MISC_USER,
-			      MAP__FUNCTION, addr, &al);
+	thread__find_addr_map_time(ui->thread, PERF_RECORD_MISC_USER,
+				   MAP__FUNCTION, addr, &al, ui->sample->time);
 	if (!al.map) {
 		pr_debug("unwind: no map for %lx\n", (unsigned long)addr);
 		return -1;
@@ -476,14 +476,14 @@ static void put_unwind_info(unw_addr_space_t __maybe_unused as,
 	pr_debug("unwind: put_unwind_info called\n");
 }
 
-static int entry(u64 ip, struct thread *thread,
+static int entry(u64 ip, struct thread *thread, u64 timestamp,
 		 unwind_entry_cb_t cb, void *arg)
 {
 	struct unwind_entry e;
 	struct addr_location al;
 
-	thread__find_addr_location(thread, PERF_RECORD_MISC_USER,
-				   MAP__FUNCTION, ip, &al);
+	thread__find_addr_location_time(thread, PERF_RECORD_MISC_USER,
+					MAP__FUNCTION, ip, &al, timestamp);
 
 	e.ip = ip;
 	e.map = al.map;
@@ -585,7 +585,7 @@ static int get_entries(struct unwind_info *ui, unwind_entry_cb_t cb,
 		unw_word_t ip;
 
 		unw_get_reg(&c, UNW_REG_IP, &ip);
-		ret = ip ? entry(ip, ui->thread, cb, arg) : 0;
+		ret = ip ? entry(ip, ui->thread, ui->sample->time, cb, arg) : 0;
 	}
 
 	return ret;
@@ -610,7 +610,7 @@ int unwind__get_entries(unwind_entry_cb_t cb, void *arg,
 	if (ret)
 		return ret;
 
-	ret = entry(ip, thread, cb, arg);
+	ret = entry(ip, thread, data->time, cb, arg);
 	if (ret)
 		return -ENOMEM;
 

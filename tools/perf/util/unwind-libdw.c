@@ -26,9 +26,10 @@ static int __report_module(struct addr_location *al, u64 ip,
 	Dwfl_Module *mod;
 	struct dso *dso = NULL;
 
-	thread__find_addr_location(ui->thread,
-				   PERF_RECORD_MISC_USER,
-				   MAP__FUNCTION, ip, al);
+	thread__find_addr_location_time(ui->thread,
+					PERF_RECORD_MISC_USER,
+					MAP__FUNCTION, ip, al,
+					ui->sample->time);
 
 	if (al->map)
 		dso = al->map->dso;
@@ -89,8 +90,8 @@ static int access_dso_mem(struct unwind_info *ui, Dwarf_Addr addr,
 	struct addr_location al;
 	ssize_t size;
 
-	thread__find_addr_map(ui->thread, PERF_RECORD_MISC_USER,
-			      MAP__FUNCTION, addr, &al);
+	thread__find_addr_map_time(ui->thread, PERF_RECORD_MISC_USER,
+				   MAP__FUNCTION, addr, &al, ui->sample->time);
 	if (!al.map) {
 		pr_debug("unwind: no map for %lx\n", (unsigned long)addr);
 		return -1;
