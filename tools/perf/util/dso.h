@@ -96,6 +96,7 @@ struct dso {
 	struct rb_root	 symbol_names[MAP__NR_TYPES];
 	void		 *a2l;
 	char		 *symsrc_filename;
+	pthread_mutex_t  lock;
 	unsigned int	 a2l_fails;
 	enum dso_kernel_type	kernel;
 	enum dso_swap_type	needs_swap;

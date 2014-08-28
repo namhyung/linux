@@ -1327,12 +1327,21 @@ int dso__load(struct dso *dso, struct map *map, symbol_filter_t filter)
 	struct symsrc *syms_ss = NULL, *runtime_ss = NULL;
 	bool kmod;
 
+	pthread_mutex_lock(&dso->lock);
+
+	if (dso__loaded(dso, map->type))
+		goto out;
+
 	dso__set_loaded(dso, map->type);
 
-	if (dso->kernel == DSO_TYPE_KERNEL)
-		return dso__load_kernel_sym(dso, map, filter);
-	else if (dso->kernel == DSO_TYPE_GUEST_KERNEL)
-		return dso__load_guest_kernel_sym(dso, map, filter);
+	if (dso->kernel) {
+		if (dso->kernel == DSO_TYPE_KERNEL)
+			dso__load_kernel_sym(dso, map, filter);
+		else if (dso->kernel == DSO_TYPE_GUEST_KERNEL)
+			dso__load_guest_kernel_sym(dso, map, filter);
+
+		goto out;
+	}
 
 	if (map->groups && map->groups->machine)
 		machine = map->groups->machine;
@@ -1345,26 +1354,28 @@ int dso__load(struct dso *dso, struct map *map, symbol_filter_t filter)
 		struct stat st;
 
 		if (lstat(dso->name, &st) < 0)
-			return -1;
+			goto out;
 
 		if (st.st_uid && (st.st_uid != geteuid())) {
 			pr_warning("File %s not owned by current user or root, "
 				"ignoring it.\n", dso->name);
-			return -1;
+			goto out;
 		}
 
 		ret = dso__load_perf_map(dso, map, filter);
 		dso->symtab_type = ret > 0 ? DSO_BINARY_TYPE__JAVA_JIT :
 					     DSO_BINARY_TYPE__NOT_FOUND;
-		return ret;
+		goto out;
 	}
 
 	if (machine)
 		root_dir = machine->root_dir;
 
 	name = malloc(PATH_MAX);
-	if (!name)
-		return -1;
+	if (!name) {
+		ret = -ENOMEM;
+		goto out;
+	}
 
 	kmod = dso->symtab_type == DSO_BINARY_TYPE__SYSTEM_PATH_KMODULE ||
 		dso->symtab_type == DSO_BINARY_TYPE__GUEST_KMODULE;
@@ -1443,7 +1454,10 @@ int dso__load(struct dso *dso, struct map *map, symbol_filter_t filter)
 out_free:
 	free(name);
 	if (ret < 0 && strstr(dso->name, " (deleted)") != NULL)
-		return 0;
+		ret = 0;
+
+out:
+	pthread_mutex_unlock(&dso->lock);
 	return ret;
 }
 
