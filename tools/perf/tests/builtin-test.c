@@ -162,6 +162,10 @@ static struct test {
 		.func = test__thread_comm,
 	},
 	{
+		.desc = "Test thread map group handling with time",
+		.func = test__thread_mg_time,
+	},
+	{
 		.func = NULL,
 	},
 };
