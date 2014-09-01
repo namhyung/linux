@@ -473,7 +473,10 @@ static int __cmd_report(struct report *rep)
 	if (ret)
 		return ret;
 
-	ret = perf_session__process_events(session, &rep->tool);
+	if (symbol_conf.multi_thread)
+		ret = perf_session__process_events_mt(session, &rep->tool);
+	else
+		ret = perf_session__process_events(session, &rep->tool);
 	if (ret)
 		return ret;
 

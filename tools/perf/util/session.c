@@ -1369,6 +1369,101 @@ int perf_session__process_events(struct perf_session *session,
 	return err;
 }
 
+struct process_events_data {
+	struct perf_session *session;
+	struct perf_tool *tool;
+	int idx;
+	int ret;
+};
+
+static void *process_events(void *arg)
+{
+	struct process_events_data *data = arg;
+	struct perf_evsel *evsel;
+	int fd;
+	u64 size;
+
+	fd = perf_data_file__multi_fd(data->session->file, data->idx);
+
+	size = lseek(fd, 0, SEEK_END);
+	if (size == 0) {
+		data->ret = 0;
+		return data;
+	}
+
+	tree_idx = data->idx;
+
+	if (___perf_session__process_events(data->session, fd, 0, size, size,
+					    data->tool) < 0) {
+		data->ret = -1;
+		return data;
+	}
+
+	evlist__for_each(data->session->evlist, evsel)
+		hists__thread_resort(&evsel->hists);
+
+	return data;
+}
+
+int perf_session__process_events_mt(struct perf_session *session,
+				    struct perf_tool *tool)
+{
+	u64 size = perf_data_file__size(session->file);
+	int i, err;
+	pthread_t thid[session->file->nr_multi];
+	struct process_events_data *ped;
+	struct perf_evsel *evsel;
+
+	if (perf_session__register_idle_thread(session) == NULL)
+		return -ENOMEM;
+
+	err = __perf_session__process_events(session,
+					     session->header.data_offset,
+					     session->header.data_size,
+					     size, tool);
+	if (err < 0)
+		return err;
+
+	evlist__for_each(session->evlist, evsel) {
+		err = hists__alloc_multi_tree(&evsel->hists,
+					      session->file->nr_multi);
+		if (err < 0)
+			return err;
+	}
+
+	pr_debug("processing data file with %d thread\n",
+		 session->file->nr_multi);
+
+	for (i = 0; i < session->file->nr_multi; i++) {
+		ped = malloc(sizeof(*ped));
+		if (ped == NULL)
+			return -ENOMEM;
+
+		ped->session = session;
+		ped->tool = tool;
+		ped->idx = i;
+
+		if (pthread_create(&thid[i], NULL, process_events, ped))
+			return -1;
+	}
+
+	for (i = 0; i < session->file->nr_multi; i++) {
+		int err2;
+
+		err2 = pthread_join(thid[i], (void **)&ped);
+		if (!err && (err2 || ped->ret < 0))
+			err = -1;
+
+		free(ped);
+	}
+
+	evlist__for_each(session->evlist, evsel) {
+		hists__free_multi_tree(&evsel->hists);
+	}
+
+	return err;
+}
+
 bool perf_session__has_traces(struct perf_session *session, const char *msg)
 {
 	struct perf_evsel *evsel;
