@@ -376,6 +376,27 @@ static u8 symbol__parent_filter(const struct symbol *parent)
 	return 0;
 }
 
+__thread int tree_idx;
+
+int hists__alloc_multi_tree(struct hists *hists, int nr)
+{
+	int i;
+
+	hists->entries_thread = calloc(nr, sizeof(struct rb_root));
+	if (hists->entries_thread == NULL)
+		return -ENOMEM;
+
+	for (i = 0; i < nr; i++)
+		hists->entries_thread[i] = RB_ROOT;
+
+	return 0;
+}
+
+void hists__free_multi_tree(struct hists *hists)
+{
+	zfree(&hists->entries_thread);
+}
+
 static struct hist_entry *add_hist_entry(struct hists *hists,
 					 struct hist_entry *entry,
 					 struct addr_location *al,
@@ -383,12 +404,18 @@ static struct hist_entry *add_hist_entry(struct hists *hists,
 {
 	struct rb_node **p;
 	struct rb_node *parent = NULL;
+	struct rb_root *root;
 	struct hist_entry *he;
 	int64_t cmp;
 	u64 period = entry->stat.period;
 	u64 weight = entry->stat.weight;
 
-	p = &hists->entries_in->rb_node;
+	if (symbol_conf.multi_thread)
+		root = &hists->entries_thread[tree_idx];
+	else
+		root = hists->entries_in;
+
+	p = &root->rb_node;
 
 	while (*p != NULL) {
 		parent = *p;
@@ -439,7 +466,7 @@ static struct hist_entry *add_hist_entry(struct hists *hists,
 		return NULL;
 
 	rb_link_node(&he->rb_node_in, parent, p);
-	rb_insert_color(&he->rb_node_in, hists->entries_in);
+	rb_insert_color(&he->rb_node_in, root);
 out:
 	if (sample_self)
 		he_stat__add_cpumode_period(&he->stat, al->cpumode, period);

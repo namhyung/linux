@@ -121,7 +121,8 @@ struct symbol_conf {
 			event_group,
 			demangle,
 			filter_relative,
-			show_hist_headers;
+			show_hist_headers,
+			multi_thread;
 	const char	*vmlinux_name,
 			*kallsyms_name,
 			*source_prefix,

@@ -83,6 +83,7 @@ struct dso;
 struct hists {
 	struct rb_root		entries_in_array[2];
 	struct rb_root		*entries_in;
+	struct rb_root		*entries_thread;
 	struct rb_root		entries;
 	struct rb_root		entries_collapsed;
 	u64			nr_entries;
@@ -129,6 +130,10 @@ extern const struct hist_iter_ops hist_iter_normal;
 extern const struct hist_iter_ops hist_iter_branch;
 extern const struct hist_iter_ops hist_iter_mem;
 extern const struct hist_iter_ops hist_iter_cumulative;
+
+extern __thread int tree_idx;
+int hists__alloc_multi_tree(struct hists *hists, int nr);
+void hists__free_multi_tree(struct hists *hists);
 
 struct hist_entry *__hists__add_entry(struct hists *hists,
 				      struct addr_location *al,
