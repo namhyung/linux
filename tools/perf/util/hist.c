@@ -977,6 +977,73 @@ void hist_entry__free(struct hist_entry *he)
 	free(he);
 }
 
+static bool hists__thread_insert_entry(struct hists *hists,
+				       struct hist_entry *he)
+{
+	struct rb_root *root = hists->entries_in;
+	struct rb_node **p = &root->rb_node;
+	struct rb_node *parent = NULL;
+	struct hist_entry *iter;
+	int64_t cmp;
+
+	while (*p != NULL) {
+		parent = *p;
+		iter = rb_entry(parent, struct hist_entry, rb_node_in);
+
+		cmp = hist_entry__cmp(iter, he);
+
+		if (!cmp) {
+			he_stat__add_stat(&iter->stat, &he->stat);
+			if (symbol_conf.cumulate_callchain)
+				he_stat__add_stat(iter->stat_acc, he->stat_acc);
+
+			if (symbol_conf.use_callchain) {
+				callchain_cursor_reset(&callchain_cursor);
+				callchain_merge(&callchain_cursor,
+						iter->callchain,
+						he->callchain);
+			}
+			hist_entry__free(he);
+			return false;
+		}
+
+		if (cmp < 0)
+			p = &(*p)->rb_left;
+		else
+			p = &(*p)->rb_right;
+	}
+
+	rb_link_node(&he->rb_node_in, parent, p);
+	rb_insert_color(&he->rb_node_in, root);
+	return true;
+}
+
+void hists__thread_resort(struct hists *hists)
+{
+	struct rb_root *root;
+	struct rb_node *next;
+	struct hist_entry *n;
+
+	if (!symbol_conf.multi_thread)
+		return;
+
+	root = &hists->entries_thread[tree_idx];
+	next = rb_first(root);
+
+	while (next) {
+		if (session_done())
+			break;
+		n = rb_entry(next, struct hist_entry, rb_node_in);
+		next = rb_next(&n->rb_node_in);
+
+		rb_erase(&n->rb_node_in, root);
+
+		pthread_mutex_lock(&hists->lock);
+		hists__thread_insert_entry(hists, n);
+		pthread_mutex_unlock(&hists->lock);
+	}
+}
+
 /*
  * collapse the histogram
  */
