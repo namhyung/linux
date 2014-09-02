@@ -16,7 +16,7 @@ struct map_groups *thread__get_map_groups(struct thread *thread, u64 timestamp)
 		if (timestamp >= mg->timestamp)
 			return mg;
 
-	return NULL;
+	return thread->mg;
 }
 
 int thread__set_map_groups(struct thread *thread, struct map_groups *mg,
