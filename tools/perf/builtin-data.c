@@ -60,19 +60,19 @@ static int perf_event__rewrite_header(struct perf_tool *tool,
 	return 0;
 }
 
-static int process_other_events(struct perf_tool *tool,
-				union perf_event *event,
-				struct perf_sample *sample __maybe_unused,
-				struct machine *machine __maybe_unused)
+static int convert_to_dir_other_events(struct perf_tool *tool,
+				       union perf_event *event,
+				       struct perf_sample *sample __maybe_unused,
+				       struct machine *machine __maybe_unused)
 {
 	return perf_event__rewrite_header(tool, event);
 }
 
-static int process_sample_event(struct perf_tool *tool,
-				union perf_event *event,
-				struct perf_sample *sample,
-				struct perf_evsel *evsel __maybe_unused,
-				struct machine *machine __maybe_unused)
+static int convert_to_dir_sample_event(struct perf_tool *tool,
+				       union perf_event *event,
+				       struct perf_sample *sample,
+				       struct perf_evsel *evsel __maybe_unused,
+				       struct machine *machine __maybe_unused)
 {
 	struct data *data = container_of(tool, struct data, tool);
 	int id = data->mode == PER_CPU ? sample->cpu : sample->tid;
@@ -123,6 +123,19 @@ static int __cmd_data_to_dir(struct data *data)
 	u64 feat_offset;
 	int header_fd;
 	int i;
+	struct perf_tool todir = {
+		.sample		= convert_to_dir_sample_event,
+		.fork		= convert_to_dir_other_events,
+		.comm		= convert_to_dir_other_events,
+		.exit		= convert_to_dir_other_events,
+		.mmap		= convert_to_dir_other_events,
+		.mmap2		= convert_to_dir_other_events,
+		.lost		= convert_to_dir_other_events,
+		.throttle	= convert_to_dir_other_events,
+		.unthrottle	= convert_to_dir_other_events,
+	};
+
+	memcpy(&data->tool, &todir, sizeof(todir));
 
 	if (perf_header__has_feat(&session->header, HEADER_MULTI_FILE)) {
 		pr_err("already converted to directory format\n");
@@ -186,6 +199,86 @@ out:
 	return 0;
 }
 
+static int dump_other_events(struct perf_tool *tool __maybe_unused,
+			     union perf_event *event __maybe_unused,
+			     struct perf_sample *sample __maybe_unused,
+			     struct machine *machine __maybe_unused)
+{
+	return 0;
+}
+
+static int dump_sample_event(struct perf_tool *tool __maybe_unused,
+			     union perf_event *event __maybe_unused,
+			     struct perf_sample *sample __maybe_unused,
+			     struct perf_evsel *evsel __maybe_unused,
+			     struct machine *machine __maybe_unused)
+{
+	return 0;
+}
+
+static int __cmd_data_dump(struct data *data)
+{
+	struct perf_session *session = data->session;
+	int i, fd;
+	off_t off, size;
+	struct perf_tool dump = {
+		.sample		= dump_sample_event,
+		.fork		= dump_other_events,
+		.comm		= dump_other_events,
+		.exit		= dump_other_events,
+		.mmap		= dump_other_events,
+		.mmap2		= dump_other_events,
+		.lost		= dump_other_events,
+		.throttle	= dump_other_events,
+		.unthrottle	= dump_other_events,
+	};
+
+	memcpy(&data->tool, &dump, sizeof(dump));
+
+	setup_pager();
+
+	pr_info("perf header: v%d (need swap: %s)\n",
+		session->header.version + 1,
+		session->header.needs_swap ? "true" : "false");
+	pr_info("data offset: %lx\n", session->header.data_offset);
+	pr_info("data length: %lx\n", session->header.data_size);
+	pr_info("feat offset: %lx\n", session->header.feat_offset);
+	pr_info("feat bitmap: %lx\n", session->header.adds_features[0]);
+
+	off = lseek(session->file->single_fd, 0, SEEK_CUR);
+	size = lseek(session->file->single_fd, 0, SEEK_END);
+	lseek(session->file->single_fd, off, SEEK_SET);
+	__perf_session__process_events(session,
+				       session->header.data_offset,
+				       session->header.data_size,
+				       size,
+				       &data->tool);
+
+	printf("\nStats for perf.header\n");
+	events_stats__fprintf(&session->stats, stdout);
+	memset(&session->stats, 0, sizeof(session->stats));
+
+	for (i = 0; i < session->file->nr_multi; i++) {
+		fd = perf_data_file__multi_fd(session->file, i);
+		if (fd < 0) {
+			pr_err("bad fd for thread %d", i);
+			return -1;
+		}
+
+		off = lseek(fd, 0, SEEK_CUR);
+		size = lseek(fd, 0, SEEK_END);
+		lseek(fd, off, SEEK_SET);
+		___perf_session__process_events(session, fd, 0, size, size,
+						&data->tool);
+
+		printf("\nStats for perf.data.%d\n", i);
+		events_stats__fprintf(&session->stats, stdout);
+		memset(&session->stats, 0, sizeof(session->stats));
+	}
+
+	return 0;
+}
+
 int cmd_data(int argc, const char **argv, const char *prefix __maybe_unused)
 {
 	bool force = false;
@@ -195,15 +288,7 @@ int cmd_data(int argc, const char **argv, const char *prefix __maybe_unused)
 	};
 	struct data data = {
 		.tool = {
-			.sample		= process_sample_event,
-			.fork		= process_other_events,
-			.comm		= process_other_events,
-			.exit		= process_other_events,
-			.mmap		= process_other_events,
-			.mmap2		= process_other_events,
-			.lost		= process_other_events,
-			.throttle	= process_other_events,
-			.unthrottle	= process_other_events,
+			.ordered_events = false,
 		},
 	};
 	const char * const data_usage[] = {
@@ -215,6 +300,7 @@ int cmd_data(int argc, const char **argv, const char *prefix __maybe_unused)
 	OPT_STRING('o', "output", &output_name, "file", "output file/directory name"),
 	OPT_BOOLEAN('f', "force", &force, "don't complain, do it"),
 	OPT_INCR('v', "verbose", &verbose, "be more verbose"),
+	OPT_BOOLEAN('D', "dump-raw-trace", &dump_trace, "dump raw trace in ASCII"),
 	OPT_END()
 	};
 
@@ -233,6 +319,8 @@ int cmd_data(int argc, const char **argv, const char *prefix __maybe_unused)
 
 	if (!strcmp(argv[0], "to-dir"))
 		__cmd_data_to_dir(&data);
+	else if (!strcmp(argv[0], "dump"))
+		__cmd_data_dump(&data);
 	else
 		usage_with_options(data_usage, data_options);
 
