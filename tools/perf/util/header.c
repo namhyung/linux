@@ -2320,6 +2320,72 @@ static int perf_header__adds_write(struct perf_header *header,
 	return err;
 }
 
+int perf_header__copy_feats(struct perf_header *header, int src_fd, int dst_fd)
+{
+	struct perf_file_section *sec, *sec_start;
+	u64 dst_offset;
+	int nr_sec;
+	int sec_size;
+	int feat;
+	int err;
+
+	/* + 1 for HEADER_MULTI_FILE feature */
+	nr_sec = bitmap_weight(header->adds_features, HEADER_FEAT_BITS) + 1;
+	if (!nr_sec)
+		return 0;
+
+	sec = sec_start = calloc(nr_sec, sizeof(*sec));
+	if (sec == NULL)
+		return -ENOMEM;
+
+	sec_size = nr_sec * sizeof(*sec);
+	dst_offset = header->feat_offset + sec_size;
+
+	/* relocate feature offsets to the destination header file */
+	for_each_set_bit(feat, header->adds_features, HEADER_FEAT_BITS) {
+		void *ptr;
+		ssize_t size;
+
+		readn(src_fd, sec, sizeof(*sec));
+		size = sec->size;
+
+		ptr = malloc(size);
+		if (ptr == NULL) {
+			pr_err("memory allocation failed\n");
+			return -1;
+		}
+
+		if (pread(src_fd, ptr, size, sec->offset) != size) {
+			pr_err("read feature data failed\n");
+			free(ptr);
+			return -1;
+		}
+
+		if (pwrite(dst_fd, ptr, size, dst_offset) != size) {
+			pr_err("write feature data failed\n");
+			free(ptr);
+			return -1;
+		}
+
+		sec->offset = dst_offset;
+		dst_offset += size;
+
+		free(ptr);
+		sec++;
+	}
+
+	/* dummy section for MULTI FILE */
+	sec->offset = dst_offset;
+	sec->size = 0;
+
+	err = do_write(dst_fd, sec_start, nr_sec * sizeof(*sec));
+	if (err < 0)
+		pr_debug("failed to copy feature section\n");
+
+	free(sec_start);
+	return err;
+}
+
 int perf_header__write_pipe(int fd)
 {
 	struct perf_pipe_file_header f_header;

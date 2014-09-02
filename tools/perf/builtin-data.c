@@ -120,6 +120,7 @@ static int __cmd_data_to_dir(struct data *data)
 	char *output = NULL;
 	char buf[PATH_MAX];
 	u64 sample_type;
+	u64 feat_offset;
 	int header_fd;
 	int i;
 
@@ -170,9 +171,14 @@ static int __cmd_data_to_dir(struct data *data)
 		}
 	}
 
+	feat_offset = session->header.feat_offset;
 	session->header.data_size = data->header_written;
 	perf_header__set_feat(&session->header, HEADER_MULTI_FILE);
 	perf_session__write_header(session, session->evlist, header_fd, false);
+
+	lseek(session->file->single_fd, feat_offset, SEEK_SET);
+	perf_header__clear_feat(&session->header, HEADER_MULTI_FILE);
+	perf_header__copy_feats(&session->header, session->file->single_fd, header_fd);
 
 	close(header_fd);
 out:

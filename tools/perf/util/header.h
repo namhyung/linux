@@ -113,6 +113,8 @@ void perf_header__set_feat(struct perf_header *header, int feat);
 void perf_header__clear_feat(struct perf_header *header, int feat);
 bool perf_header__has_feat(const struct perf_header *header, int feat);
 
+int perf_header__copy_feats(struct perf_header *header, int src_fd, int dst_fd);
+
 int perf_header__set_cmdline(int argc, const char **argv);
 
 int perf_header__process_sections(struct perf_header *header, int fd,
