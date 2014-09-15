@@ -1018,7 +1018,7 @@ static bool hists__thread_insert_entry(struct hists *hists,
 	return true;
 }
 
-void hists__thread_resort(struct hists *hists)
+void hists__thread_resort(struct hists *hists, int idx)
 {
 	struct rb_root *root;
 	struct rb_node *next;
@@ -1027,7 +1027,7 @@ void hists__thread_resort(struct hists *hists)
 	if (!symbol_conf.multi_thread)
 		return;
 
-	root = &hists->entries_thread[tree_idx];
+	root = &hists->entries_thread[idx];
 	next = rb_first(root);
 
 	while (next) {
@@ -1038,9 +1038,7 @@ void hists__thread_resort(struct hists *hists)
 
 		rb_erase(&n->rb_node_in, root);
 
-		pthread_mutex_lock(&hists->lock);
 		hists__thread_insert_entry(hists, n);
-		pthread_mutex_unlock(&hists->lock);
 	}
 }
 

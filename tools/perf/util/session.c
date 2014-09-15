@@ -1379,7 +1379,6 @@ struct process_events_data {
 static void *process_events(void *arg)
 {
 	struct process_events_data *data = arg;
-	struct perf_evsel *evsel;
 	int fd;
 	u64 size;
 
@@ -1398,9 +1397,6 @@ static void *process_events(void *arg)
 		data->ret = -1;
 		return data;
 	}
-
-	evlist__for_each(data->session->evlist, evsel)
-		hists__thread_resort(&evsel->hists);
 
 	return data;
 }
@@ -1453,6 +1449,9 @@ int perf_session__process_events_mt(struct perf_session *session,
 		err2 = pthread_join(thid[i], (void **)&ped);
 		if (!err && (err2 || ped->ret < 0))
 			err = -1;
+
+		evlist__for_each(session->evlist, evsel)
+			hists__thread_resort(&evsel->hists, i);
 
 		free(ped);
 	}
