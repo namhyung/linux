@@ -733,7 +733,7 @@ repeat:
 
 	report.session = session;
 
-	if (perf_header__has_feat(&session->header, HEADER_MULTI_FILE)) {
+	if (1 || perf_header__has_feat(&session->header, HEADER_MULTI_FILE)) {
 		perf_evlist__first(session->evlist)->dummy = true;
 		symbol_conf.multi_thread = true;
 	}
