@@ -387,7 +387,7 @@ dso_cache__free(struct dso *dso)
 	struct rb_root *root = &dso->data.cache;
 	struct rb_node *next = rb_first(root);
 
-	pthread_mutex_lock(&dso->lock);
+	pthread_rwlock_wrlock(&dso->cache_lock);
 	while (next) {
 		struct dso_cache *cache;
 
@@ -396,7 +396,7 @@ dso_cache__free(struct dso *dso)
 		rb_erase(&cache->rb_node, root);
 		free(cache);
 	}
-	pthread_mutex_unlock(&dso->lock);
+	pthread_rwlock_unlock(&dso->cache_lock);
 }
 
 static struct dso_cache *dso_cache__find(struct dso *dso, u64 offset)
@@ -406,7 +406,7 @@ static struct dso_cache *dso_cache__find(struct dso *dso, u64 offset)
 	const struct rb_node *parent = NULL;
 	struct dso_cache *cache;
 
-	pthread_mutex_lock(&dso->lock);
+	pthread_rwlock_rdlock(&dso->cache_lock);
 	while (*p != NULL) {
 		u64 end;
 
@@ -423,7 +423,7 @@ static struct dso_cache *dso_cache__find(struct dso *dso, u64 offset)
 
 		cache = NULL;
 	}
-	pthread_mutex_unlock(&dso->lock);
+	pthread_rwlock_unlock(&dso->cache_lock);
 	return cache;
 }
 
@@ -437,7 +437,7 @@ dso_cache__insert(struct dso *dso, struct dso_cache *new)
 	u64 offset = new->offset;
 	int ret = 0;
 
-	pthread_mutex_unlock(&dso->lock);
+	pthread_rwlock_wrlock(&dso->cache_lock);
 	while (*p != NULL) {
 		u64 end;
 
@@ -459,7 +459,7 @@ dso_cache__insert(struct dso *dso, struct dso_cache *new)
 	rb_insert_color(&new->rb_node, root);
 
 out_unlock:
-	pthread_mutex_unlock(&dso->lock);
+	pthread_rwlock_unlock(&dso->cache_lock);
 	return ret;
 }
 
@@ -791,6 +791,7 @@ struct dso *dso__new(const char *name)
 		INIT_LIST_HEAD(&dso->node);
 		INIT_LIST_HEAD(&dso->data.open_entry);
 		pthread_mutex_init(&dso->lock, NULL);
+		pthread_rwlock_init(&dso->cache_lock, NULL);
 	}
 
 	return dso;

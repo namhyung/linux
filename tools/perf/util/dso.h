@@ -97,6 +97,7 @@ struct dso {
 	void		 *a2l;
 	char		 *symsrc_filename;
 	pthread_mutex_t  lock;
+	pthread_rwlock_t cache_lock;
 	unsigned int	 a2l_fails;
 	enum dso_kernel_type	kernel;
 	enum dso_swap_type	needs_swap;
