@@ -142,6 +142,7 @@ int dso__read_binary_type_filename(const struct dso *dso,
  */
 static LIST_HEAD(dso__data_open);
 static long dso__data_open_cnt;
+static pthread_mutex_t dso__data_open_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void dso__list_add(struct dso *dso)
 {
@@ -211,6 +212,7 @@ static void check_data_close(void);
  *
  * Open @dso's data file descriptor and updates
  * list/count of open DSO objects.
+ * Must be called under dso__data_open_mutex.
  */
 static int open_dso(struct dso *dso, struct machine *machine)
 {
@@ -244,6 +246,7 @@ static void close_data_fd(struct dso *dso)
  *
  * Close @dso's data file descriptor and updates
  * list/count of open DSO objects.
+ * Must be called under dso__data_open_mutex.
  */
 static void close_dso(struct dso *dso)
 {
@@ -311,7 +314,9 @@ static void check_data_close(void)
  */
 void dso__data_close(struct dso *dso)
 {
+	pthread_mutex_lock(&dso__data_open_mutex);
 	close_dso(dso);
+	pthread_mutex_unlock(&dso__data_open_mutex);
 }
 
 /**
@@ -337,9 +342,11 @@ int dso__data_fd(struct dso *dso, struct machine *machine)
 	if (dso->data.fd >= 0)
 		goto out;
 
+	pthread_mutex_lock(&dso__data_open_mutex);
+
 	if (dso->binary_type != DSO_BINARY_TYPE__NOT_FOUND) {
 		dso->data.fd = open_dso(dso, machine);
-		goto out;
+		goto out_unlock;
 	}
 
 	do {
@@ -347,9 +354,12 @@ int dso__data_fd(struct dso *dso, struct machine *machine)
 
 		dso->data.fd = open_dso(dso, machine);
 		if (dso->data.fd >= 0)
-			goto out;
+			goto out_unlock;
 
 	} while (dso->binary_type != DSO_BINARY_TYPE__NOT_FOUND);
+
+out_unlock:
+	pthread_mutex_unlock(&dso__data_open_mutex);
 out:
 	if (dso->data.fd >= 0)
 		dso->data.status = DSO_DATA_STATUS_OK;
