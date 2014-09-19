@@ -240,7 +240,7 @@ create_child(struct callchain_node *parent, bool inherit_children)
 {
 	struct callchain_node *new;
 
-	new = zalloc(sizeof(*new));
+	new = tzalloc(sizeof(*new));
 	if (!new) {
 		perror("not enough memory to create child for code path tree");
 		return NULL;
@@ -288,7 +288,7 @@ fill_node(struct callchain_node *node, struct callchain_cursor *cursor)
 	while (cursor_node) {
 		struct callchain_list *call;
 
-		call = zalloc(sizeof(*call));
+		call = tzalloc(sizeof(*call));
 		if (!call) {
 			perror("not enough memory for the code path tree");
 			return;
@@ -533,7 +533,7 @@ merge_chain_branch(struct callchain_cursor *cursor,
 		callchain_cursor_append(cursor, list->ip,
 					list->ms.map, list->ms.sym);
 		list_del(&list->list);
-		free(list);
+		tfree(list);
 	}
 
 	if (src->hit) {
@@ -551,7 +551,7 @@ merge_chain_branch(struct callchain_cursor *cursor,
 		if (err)
 			break;
 
-		free(child);
+		tfree(child);
 	}
 
 	cursor->nr = old_pos;

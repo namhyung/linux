@@ -350,4 +350,10 @@ void mem_bswap_32(void *src, int byte_size);
 
 const char *get_filename_for_perf_kvm(void);
 bool find_process(const char *name);
+
+void *tmalloc(size_t sz);
+void *tzalloc(size_t sz);
+void tfree(void *ptr);
+void tfree_all(void);
+
 #endif /* GIT_COMPAT_UTIL_H */

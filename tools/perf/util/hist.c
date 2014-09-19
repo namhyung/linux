@@ -312,15 +312,15 @@ static struct hist_entry *hist_entry__new(struct hist_entry *template,
 	if (symbol_conf.use_callchain || symbol_conf.cumulate_callchain)
 		callchain_size = sizeof(struct callchain_root);
 
-	he = zalloc(sizeof(*he) + callchain_size);
+	he = tzalloc(sizeof(*he) + callchain_size);
 
 	if (he != NULL) {
 		*he = *template;
 
 		if (symbol_conf.cumulate_callchain) {
-			he->stat_acc = malloc(sizeof(he->stat));
+			he->stat_acc = tmalloc(sizeof(he->stat));
 			if (he->stat_acc == NULL) {
-				free(he);
+				tfree(he);
 				return NULL;
 			}
 			memcpy(he->stat_acc, &he->stat, sizeof(he->stat));
@@ -339,8 +339,8 @@ static struct hist_entry *hist_entry__new(struct hist_entry *template,
 			 */
 			he->branch_info = malloc(sizeof(*he->branch_info));
 			if (he->branch_info == NULL) {
-				free(he->stat_acc);
-				free(he);
+				tfree(he->stat_acc);
+				tfree(he);
 				return NULL;
 			}
 
@@ -972,9 +972,9 @@ void hist_entry__free(struct hist_entry *he)
 {
 	zfree(&he->branch_info);
 	zfree(&he->mem_info);
-	zfree(&he->stat_acc);
 	free_srcline(he->srcline);
-	free(he);
+	tfree(he->stat_acc);
+	tfree(he);
 }
 
 static bool hists__thread_insert_entry(struct hists *hists,
