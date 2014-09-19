@@ -168,6 +168,39 @@ parse_callchain_report_opt(const char *arg)
 	return 0;
 }
 
+int perf_callchain_config(const char *var, const char *value)
+{
+	if (prefixcmp(var, "call-graph."))
+		return 0;
+	var += 11; /* strlen("call-graph.") == 11 */
+
+	if (!strcmp(var, "record-mode"))
+		return parse_callchain_record_opt(value);
+#ifdef HAVE_DWARF_UNWIND_SUPPORT
+	if (!strcmp(var, "dump-size")) {
+		unsigned long size = 0;
+		int ret;
+
+		ret = get_stack_size(value, &size);
+		callchain_param.dump_size = size;
+
+		return ret;
+	}
+#endif
+	if (!strcmp(var, "print-type"))
+		return parse_callchain_report_opt(value);
+	if (!strcmp(var, "order"))
+		return parse_callchain_report_opt(value);
+	if (!strcmp(var, "threshold"))
+		return parse_callchain_report_opt(value);
+	if (!strcmp(var, "print-limit"))
+		return parse_callchain_report_opt(value);
+	if (!strcmp(var, "sort-key"))
+		return parse_callchain_report_opt(value);
+
+	return 0;
+}
+
 static void
 rb_insert_callchain(struct rb_root *root, struct callchain_node *chain,
 		    enum chain_mode mode)
