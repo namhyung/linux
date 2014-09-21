@@ -219,8 +219,7 @@ static int dump_sample_event(struct perf_tool *tool __maybe_unused,
 static int __cmd_data_dump(struct data *data)
 {
 	struct perf_session *session = data->session;
-	int i, fd;
-	off_t off, size;
+	int i;
 	struct perf_tool dump = {
 		.sample		= dump_sample_event,
 		.fork		= dump_other_events,
@@ -245,13 +244,7 @@ static int __cmd_data_dump(struct data *data)
 	pr_info("feat offset: %lx\n", session->header.feat_offset);
 	pr_info("feat bitmap: %lx\n", session->header.adds_features[0]);
 
-	off = lseek(session->file->single_fd, 0, SEEK_CUR);
-	size = lseek(session->file->single_fd, 0, SEEK_END);
-	lseek(session->file->single_fd, off, SEEK_SET);
-	__perf_session__process_events(session,
-				       session->header.data_offset,
-				       session->header.data_size,
-				       size,
+	__perf_session__process_events(session, session->file, -1,
 				       &data->tool);
 
 	printf("\nStats for perf.header\n");
@@ -259,17 +252,8 @@ static int __cmd_data_dump(struct data *data)
 	memset(&session->stats, 0, sizeof(session->stats));
 
 	for (i = 0; i < session->file->nr_multi; i++) {
-		fd = perf_data_file__multi_fd(session->file, i);
-		if (fd < 0) {
-			pr_err("bad fd for thread %d", i);
-			return -1;
-		}
-
-		off = lseek(fd, 0, SEEK_CUR);
-		size = lseek(fd, 0, SEEK_END);
-		lseek(fd, off, SEEK_SET);
-		___perf_session__process_events(session, fd, 0, size, size,
-						&data->tool);
+		__perf_session__process_events(session, session->file, i,
+					       &data->tool);
 
 		printf("\nStats for perf.data.%d\n", i);
 		events_stats__fprintf(&session->stats, stdout);

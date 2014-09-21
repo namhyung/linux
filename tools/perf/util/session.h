@@ -50,17 +50,9 @@ int perf_session__peek_event(struct perf_session *session, off_t file_offset,
 			     union perf_event **event_ptr,
 			     struct perf_sample *sample);
 
-int ___perf_session__process_events(struct perf_session *session, int fd,
-				   u64 data_offset, u64 data_size, u64 size,
+int __perf_session__process_events(struct perf_session *session,
+				   struct perf_data_file *file, int idx,
 				   struct perf_tool *tool);
-static inline int __perf_session__process_events(struct perf_session *session,
-				   u64 data_offset, u64 data_size, u64 size,
-				   struct perf_tool *tool)
-{
-	return ___perf_session__process_events(session,
-					perf_data_file__fd(session->file),
-					data_offset, data_size, size, tool);
-}
 
 int perf_session__process_events(struct perf_session *session,
 				 struct perf_tool *tool);

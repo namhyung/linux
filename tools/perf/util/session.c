@@ -1221,19 +1221,40 @@ fetch_mmaped_event(struct perf_session *session,
 #define NUM_MMAPS 128
 #endif
 
-int ___perf_session__process_events(struct perf_session *session, int fd,
-				   u64 data_offset, u64 data_size,
-				   u64 file_size, struct perf_tool *tool)
+int __perf_session__process_events(struct perf_session *session,
+				   struct perf_data_file *file, int idx,
+				   struct perf_tool *tool)
 {
+	u64 data_offset, data_size, file_size;
 	u64 head, page_offset, file_offset, file_pos, size;
 	int err, mmap_prot, mmap_flags, map_idx = 0;
 	size_t	mmap_size;
 	char *buf, *mmaps[NUM_MMAPS];
 	union perf_event *event;
 	struct ui_progress prog;
+	struct stat stbuf;
 	s64 skip;
+	int fd;
 
 	perf_tool__fill_defaults(tool);
+
+	if (idx >= 0) {
+		fd = perf_data_file__multi_fd(file, idx);
+		if (fstat(fd, &stbuf) < 0)
+			return -1;
+
+		data_offset = 0;
+		data_size = stbuf.st_size;
+		file_size = stbuf.st_size;
+	} else {
+		fd = file->single_fd;
+		if (fstat(fd, &stbuf) < 0)
+			return -1;
+
+		data_offset = session->header.data_offset;
+		data_size = session->header.data_size;
+		file_size = stbuf.st_size;
+	}
 
 	page_offset = page_size * (data_offset / page_size);
 	file_offset = page_offset;
@@ -1329,7 +1350,6 @@ out_err:
 int perf_session__process_events(struct perf_session *session,
 				 struct perf_tool *tool)
 {
-	u64 size = perf_data_file__size(session->file);
 	int err = 0;
 
 	if (perf_session__register_idle_thread(session) == NULL)
@@ -1338,29 +1358,20 @@ int perf_session__process_events(struct perf_session *session,
 	if (perf_data_file__is_pipe(session->file))
 		err = __perf_session__process_pipe_events(session, tool);
 	else if (!session->file->is_multi)
-		err = __perf_session__process_events(session,
-						     session->header.data_offset,
-						     session->header.data_size,
-						     size, tool);
+		err = __perf_session__process_events(session, session->file, -1,
+						     tool);
 	else {
 		int i;
 
-		err = __perf_session__process_events(session,
-						     session->header.data_offset,
-						     session->header.data_size,
-						     size, tool);
+		err = __perf_session__process_events(session, session->file, -1,
+						     tool);
 		if (err < 0)
 			return err;
 
 		for (i = 0; i < session->file->nr_multi; i++) {
-			int fd = perf_data_file__multi_fd(session->file, i);
-
-			size = lseek(fd, 0, SEEK_END);
-			if (size == 0)
-				continue;
-
-			err = ___perf_session__process_events(session, fd, 0, size, size,
-							      tool);
+			err = __perf_session__process_events(session,
+							     session->file, i,
+							     tool);
 			if (err < 0)
 				break;
 		}
@@ -1379,21 +1390,11 @@ struct process_events_data {
 static void *process_events(void *arg)
 {
 	struct process_events_data *data = arg;
-	int fd;
-	u64 size;
-
-	fd = perf_data_file__multi_fd(data->session->file, data->idx);
-
-	size = lseek(fd, 0, SEEK_END);
-	if (size == 0) {
-		data->ret = 0;
-		return data;
-	}
 
 	tree_idx = data->idx;
 
-	if (___perf_session__process_events(data->session, fd, 0, size, size,
-					    data->tool) < 0) {
+	if (__perf_session__process_events(data->session, data->session->file,
+					   data->idx, data->tool) < 0) {
 		data->ret = -1;
 		return data;
 	}
@@ -1404,7 +1405,6 @@ static void *process_events(void *arg)
 int perf_session__process_events_mt(struct perf_session *session,
 				    struct perf_tool *tool)
 {
-	u64 size = perf_data_file__size(session->file);
 	int i, err;
 	pthread_t thid[session->file->nr_multi];
 	struct process_events_data *ped;
@@ -1413,10 +1413,8 @@ int perf_session__process_events_mt(struct perf_session *session,
 	if (perf_session__register_idle_thread(session) == NULL)
 		return -ENOMEM;
 
-	err = __perf_session__process_events(session,
-					     session->header.data_offset,
-					     session->header.data_size,
-					     size, tool);
+	err = __perf_session__process_events(session, session->file, -1,
+					     tool);
 	if (err < 0)
 		return err;
 
@@ -1438,6 +1436,7 @@ int perf_session__process_events_mt(struct perf_session *session,
 		ped->session = session;
 		ped->tool = tool;
 		ped->idx = i;
+		ped->ret = 0;
 
 		if (pthread_create(&thid[i], NULL, process_events, ped))
 			return -1;
