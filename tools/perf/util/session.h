@@ -22,6 +22,7 @@ struct perf_session {
 	struct perf_evlist	*evlist;
 	struct trace_event	tevent;
 	struct events_stats	stats;
+	struct events_stats	*multi_stats;
 	bool			repipe;
 	bool			one_mmap;
 	void			*one_mmap_addr;
@@ -71,7 +72,8 @@ void perf_tool__fill_defaults(struct perf_tool *tool);
 int perf_session__deliver_event(struct perf_session *session,
 				union perf_event *event,
 				struct perf_sample *sample,
-				struct perf_tool *tool, u64 file_offset);
+				struct perf_tool *tool, u64 file_offset,
+				int idx);
 
 int perf_session__resolve_callchain(struct perf_session *session,
 				    struct perf_evsel *evsel,

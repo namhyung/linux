@@ -746,12 +746,24 @@ static struct machine *
 	return &session->machines.host;
 }
 
+#define perf_session__add_stat(session, idx, field, num)	\
+do {								\
+	if (idx >= 0 && symbol_conf.multi_thread)		\
+		session->multi_stats[idx].field += num;		\
+	else							\
+		session->stats.field += num;			\
+} while (0)
+
+#define perf_session__inc_stat(session, idx, field)		\
+	  perf_session__add_stat(session, idx, field, 1)
+
 static int deliver_sample_value(struct perf_session *session,
 				struct perf_tool *tool,
 				union perf_event *event,
 				struct perf_sample *sample,
 				struct sample_read_value *v,
-				struct machine *machine)
+				struct machine *machine,
+				int idx)
 {
 	struct perf_sample_id *sid;
 
@@ -763,7 +775,7 @@ static int deliver_sample_value(struct perf_session *session,
 	}
 
 	if (!sid || sid->evsel == NULL) {
-		++session->stats.nr_unknown_id;
+		perf_session__inc_stat(session, idx, nr_unknown_id);
 		return 0;
 	}
 
@@ -774,7 +786,8 @@ static int deliver_sample_group(struct perf_session *session,
 				struct perf_tool *tool,
 				union  perf_event *event,
 				struct perf_sample *sample,
-				struct machine *machine)
+				struct machine *machine,
+				int idx)
 {
 	int ret = -EINVAL;
 	u64 i;
@@ -782,7 +795,7 @@ static int deliver_sample_group(struct perf_session *session,
 	for (i = 0; i < sample->read.group.nr; i++) {
 		ret = deliver_sample_value(session, tool, event, sample,
 					   &sample->read.group.values[i],
-					   machine);
+					   machine, idx);
 		if (ret)
 			break;
 	}
@@ -796,7 +809,8 @@ perf_session__deliver_sample(struct perf_session *session,
 			     union  perf_event *event,
 			     struct perf_sample *sample,
 			     struct perf_evsel *evsel,
-			     struct machine *machine)
+			     struct machine *machine,
+			     int idx)
 {
 	/* We know evsel != NULL. */
 	u64 sample_type = evsel->attr.sample_type;
@@ -809,16 +823,17 @@ perf_session__deliver_sample(struct perf_session *session,
 	/* For PERF_SAMPLE_READ we have either single or group mode. */
 	if (read_format & PERF_FORMAT_GROUP)
 		return deliver_sample_group(session, tool, event, sample,
-					    machine);
+					    machine, idx);
 	else
 		return deliver_sample_value(session, tool, event, sample,
-					    &sample->read.one, machine);
+					    &sample->read.one, machine, idx);
 }
 
 int perf_session__deliver_event(struct perf_session *session,
 				union perf_event *event,
 				struct perf_sample *sample,
-				struct perf_tool *tool, u64 file_offset)
+				struct perf_tool *tool, u64 file_offset,
+				int idx)
 {
 	struct perf_evsel *evsel;
 	struct machine *machine;
@@ -850,15 +865,15 @@ int perf_session__deliver_event(struct perf_session *session,
 	case PERF_RECORD_SAMPLE:
 		dump_sample(evsel, event, sample);
 		if (evsel == NULL) {
-			++session->stats.nr_unknown_id;
+			perf_session__inc_stat(session, idx, nr_unknown_id);
 			return 0;
 		}
 		if (machine == NULL) {
-			++session->stats.nr_unprocessable_samples;
+			perf_session__inc_stat(session, idx, nr_unprocessable_samples);
 			return 0;
 		}
 		return perf_session__deliver_sample(session, tool, event,
-						    sample, evsel, machine);
+						    sample, evsel, machine, idx);
 	case PERF_RECORD_MMAP:
 		return tool->mmap(tool, event, sample, machine);
 	case PERF_RECORD_MMAP2:
@@ -871,7 +886,8 @@ int perf_session__deliver_event(struct perf_session *session,
 		return tool->exit(tool, event, sample, machine);
 	case PERF_RECORD_LOST:
 		if (tool->lost == perf_event__process_lost)
-			session->stats.total_lost += event->lost.lost;
+			perf_session__add_stat(session, idx, total_lost,
+					       event->lost.lost);
 		return tool->lost(tool, event, sample, machine);
 	case PERF_RECORD_READ:
 		return tool->read(tool, event, sample, evsel, machine);
@@ -880,7 +896,7 @@ int perf_session__deliver_event(struct perf_session *session,
 	case PERF_RECORD_UNTHROTTLE:
 		return tool->unthrottle(tool, event, sample, machine);
 	default:
-		++session->stats.nr_unknown_events;
+		perf_session__inc_stat(session, idx, nr_unknown_events);
 		return -1;
 	}
 }
@@ -990,7 +1006,7 @@ out_parse_sample:
 static s64 perf_session__process_event(struct perf_session *session,
 				       union perf_event *event,
 				       struct perf_tool *tool,
-				       u64 file_offset)
+				       u64 file_offset, int idx)
 {
 	struct perf_sample sample;
 	int ret;
@@ -1001,7 +1017,10 @@ static s64 perf_session__process_event(struct perf_session *session,
 	if (event->header.type >= PERF_RECORD_HEADER_MAX)
 		return -EINVAL;
 
-	events_stats__inc(&session->stats, event->header.type);
+	if (idx >= 0 && symbol_conf.multi_thread)
+		events_stats__inc(&session->multi_stats[idx], event->header.type);
+	else
+		events_stats__inc(&session->stats, event->header.type);
 
 	if (event->header.type >= PERF_RECORD_USER_TYPE_START)
 		return perf_session__process_user_event(session, event, tool, file_offset);
@@ -1021,7 +1040,7 @@ static s64 perf_session__process_event(struct perf_session *session,
 	}
 
 	return perf_session__deliver_event(session, event, &sample, tool,
-					   file_offset);
+					   file_offset, idx);
 }
 
 void perf_event_header__bswap(struct perf_event_header *hdr)
@@ -1157,7 +1176,7 @@ more:
 		}
 	}
 
-	if ((skip = perf_session__process_event(session, event, tool, head)) < 0) {
+	if ((skip = perf_session__process_event(session, event, tool, head, -1)) < 0) {
 		pr_err("%#" PRIx64 " [%#x]: failed to process type: %d\n",
 		       head, event->header.size, event->header.type);
 		err = -EINVAL;
@@ -1313,8 +1332,8 @@ more:
 	size = event->header.size;
 
 	if (size < sizeof(struct perf_event_header) ||
-	    (skip = perf_session__process_event(session, event, tool, file_pos))
-									< 0) {
+	    (skip = perf_session__process_event(session, event, tool, file_pos,
+						idx)) < 0) {
 		pr_err("%#" PRIx64 " [%#x]: failed to process type: %d\n",
 		       file_offset + head, event->header.size,
 		       event->header.type);
@@ -1329,7 +1348,7 @@ more:
 	file_pos += size;
 
 	if (prog) {
-		if (idx < 0)
+		if (idx < 0 || !symbol_conf.multi_thread)
 			ui_progress__update(prog, size);
 		else {
 			static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -1354,7 +1373,8 @@ out:
 	/* do the final flush for ordered samples */
 	err = ordered_events__flush(session, tool, OE_FLUSH__FINAL);
 out_err:
-	perf_session__warn_about_errors(session, tool);
+	if (!session->file->nr_multi)
+		perf_session__warn_about_errors(session, tool);
 	ordered_events__free(&session->ordered_events);
 	session->one_mmap = false;
 	return err;
@@ -1394,6 +1414,7 @@ int perf_session__process_events(struct perf_session *session,
 			if (err < 0)
 				break;
 		}
+		perf_session__warn_about_errors(session, tool);
 	}
 
 out:
@@ -1445,6 +1466,13 @@ int perf_session__process_events_mt(struct perf_session *session,
 	if (err < 0)
 		goto out;
 
+	session->multi_stats = calloc(session->file->nr_multi,
+				      sizeof(*session->multi_stats));
+	if (session->multi_stats == NULL) {
+		err = -ENOMEM;
+		goto out;
+	}
+
 	evlist__for_each(session->evlist, evsel) {
 		err = hists__alloc_multi_tree(&evsel->hists,
 					      session->file->nr_multi);
@@ -1485,12 +1513,17 @@ int perf_session__process_events_mt(struct perf_session *session,
 		evlist__for_each(session->evlist, evsel)
 			hists__thread_resort(&evsel->hists, i);
 
+		events_stats__add(&session->stats, &session->multi_stats[i]);
+
 		free(ped);
 	}
+
+	perf_session__warn_about_errors(session, tool);
 
 	evlist__for_each(session->evlist, evsel) {
 		hists__free_multi_tree(&evsel->hists);
 	}
+	zfree(&session->multi_stats);
 
 out:
 	ui_progress__finish();

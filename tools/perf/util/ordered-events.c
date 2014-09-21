@@ -144,7 +144,7 @@ static int __ordered_events__flush(struct perf_session *s,
 			pr_err("Can't parse sample, err = %d\n", ret);
 		else {
 			ret = perf_session__deliver_event(s, iter->event, &sample, tool,
-							  iter->file_offset);
+							  iter->file_offset, -1);
 			if (ret)
 				return ret;
 		}

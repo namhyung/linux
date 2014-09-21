@@ -1360,6 +1360,29 @@ void hists__filter_by_symbol(struct hists *hists)
 	}
 }
 
+void events_stats__add(struct events_stats *dst, struct events_stats *src)
+{
+	int i;
+
+#define ADD(field)  dst->field += src->field
+
+	ADD(total_period);
+	ADD(total_non_filtered_period);
+	ADD(total_lost);
+	ADD(total_invalid_chains);
+	ADD(nr_non_filtered_samples);
+	ADD(nr_lost_warned);
+	ADD(nr_unknown_events);
+	ADD(nr_invalid_chains);
+	ADD(nr_unknown_id);
+	ADD(nr_unprocessable_samples);
+
+#undef ADD
+
+	for (i = 0; i < PERF_RECORD_HEADER_MAX; i++)
+		dst->nr_events[i] += src->nr_events[i];
+}
+
 void events_stats__inc(struct events_stats *stats, u32 type)
 {
 	++stats->nr_events[0];
