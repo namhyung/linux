@@ -181,12 +181,22 @@ static int open_file_read_multi(struct perf_data_file *file, int nr)
 	}
 
 	for (i = 0; i < nr; i++) {
+		struct stat stbuf;
+
 		path__join(path, sizeof(path), file->path, list[i]->d_name);
 		ret = open(path, O_RDONLY);
 		if (ret < 0)
 			goto out_err;
 
 		file->multi_fd[i] = ret;
+
+		ret = fstat(file->multi_fd[i], &stbuf);
+		if (ret < 0) {
+			close(file->multi_fd[i]);
+			goto out_err;
+		}
+
+		file->size += stbuf.st_size;
 	}
 	file->nr_multi = nr;
 
