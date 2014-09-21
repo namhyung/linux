@@ -218,12 +218,14 @@ static int process_buildids(struct record *rec)
 
 	if (!file->is_multi) {
 		return __perf_session__process_events(session, session->file, -1,
-						      &build_id__mark_dso_hit_ops);
+						      &build_id__mark_dso_hit_ops,
+						      NULL);
 	}
 
 	for (i = 0; i < file->nr_multi; i++) {
 		ret = __perf_session__process_events(session, session->file, i,
-						     &build_id__mark_dso_hit_ops);
+						     &build_id__mark_dso_hit_ops,
+						     NULL);
 		if (ret < 0)
 			break;
 	}

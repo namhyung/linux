@@ -245,7 +245,7 @@ static int __cmd_data_dump(struct data *data)
 	pr_info("feat bitmap: %lx\n", session->header.adds_features[0]);
 
 	__perf_session__process_events(session, session->file, -1,
-				       &data->tool);
+				       &data->tool, NULL);
 
 	printf("\nStats for perf.header\n");
 	events_stats__fprintf(&session->stats, stdout);
@@ -253,7 +253,7 @@ static int __cmd_data_dump(struct data *data)
 
 	for (i = 0; i < session->file->nr_multi; i++) {
 		__perf_session__process_events(session, session->file, i,
-					       &data->tool);
+					       &data->tool, NULL);
 
 		printf("\nStats for perf.data.%d\n", i);
 		events_stats__fprintf(&session->stats, stdout);

@@ -50,9 +50,11 @@ int perf_session__peek_event(struct perf_session *session, off_t file_offset,
 			     union perf_event **event_ptr,
 			     struct perf_sample *sample);
 
+struct ui_progress;
 int __perf_session__process_events(struct perf_session *session,
 				   struct perf_data_file *file, int idx,
-				   struct perf_tool *tool);
+				   struct perf_tool *tool,
+				   struct ui_progress *prog);
 
 int perf_session__process_events(struct perf_session *session,
 				 struct perf_tool *tool);
