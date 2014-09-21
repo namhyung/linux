@@ -94,6 +94,7 @@ struct hists {
 	const char		*symbol_filter_str;
 	pthread_mutex_t		lock;
 	struct events_stats	stats;
+	struct events_stats	*multi_stats;
 	u64			event_stream;
 	u16			col_len[HISTC_NR_COLS];
 };
@@ -165,6 +166,7 @@ u64 hists__total_period(struct hists *hists);
 void hists__reset_stats(struct hists *hists);
 void hists__inc_stats(struct hists *hists, struct hist_entry *h);
 void hists__inc_nr_events(struct hists *hists, u32 type);
+void hists__inc_nr_events_multi(struct hists *hists, int idx, u32 type);
 void hists__inc_nr_samples(struct hists *hists, bool filtered);
 void events_stats__inc(struct events_stats *stats, u32 type);
 void events_stats__add(struct events_stats *dst, struct events_stats *src);

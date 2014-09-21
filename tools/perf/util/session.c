@@ -855,7 +855,8 @@ int perf_session__deliver_event(struct perf_session *session,
 		 * future probably it'll be a good idea to restrict event
 		 * processing via perf_session to files with both set.
 		 */
-		hists__inc_nr_events(&evsel->hists, event->header.type);
+		hists__inc_nr_events_multi(&evsel->hists, idx,
+					   event->header.type);
 	}
 
 	machine = perf_session__find_machine_for_cpumode(session, event,
@@ -1510,8 +1511,11 @@ int perf_session__process_events_mt(struct perf_session *session,
 		if (!err && (err2 || ped->ret < 0))
 			err = -1;
 
-		evlist__for_each(session->evlist, evsel)
+		evlist__for_each(session->evlist, evsel) {
 			hists__thread_resort(&evsel->hists, i);
+			events_stats__add(&evsel->hists.stats,
+					  &evsel->hists.multi_stats[i]);
+		}
 
 		events_stats__add(&session->stats, &session->multi_stats[i]);
 

@@ -389,12 +389,18 @@ int hists__alloc_multi_tree(struct hists *hists, int nr)
 	for (i = 0; i < nr; i++)
 		hists->entries_thread[i] = RB_ROOT;
 
+	hists->multi_stats = calloc(nr, sizeof(struct events_stats));
+	if (hists->multi_stats == NULL) {
+		zfree(&hists->entries_thread);
+		return -ENOMEM;
+	}
 	return 0;
 }
 
 void hists__free_multi_tree(struct hists *hists)
 {
 	zfree(&hists->entries_thread);
+	zfree(&hists->multi_stats);
 }
 
 static struct hist_entry *add_hist_entry(struct hists *hists,
@@ -1394,11 +1400,24 @@ void hists__inc_nr_events(struct hists *hists, u32 type)
 	events_stats__inc(&hists->stats, type);
 }
 
+void hists__inc_nr_events_multi(struct hists *hists, int idx, u32 type)
+{
+	if (idx >= 0 && symbol_conf.multi_thread)
+		events_stats__inc(&hists->multi_stats[idx], type);
+	else
+		events_stats__inc(&hists->stats, type);
+}
+
 void hists__inc_nr_samples(struct hists *hists, bool filtered)
 {
-	events_stats__inc(&hists->stats, PERF_RECORD_SAMPLE);
+	struct events_stats *stats = &hists->stats;
+
+	if (symbol_conf.multi_thread)
+		stats = &hists->multi_stats[tree_idx];
+
+	events_stats__inc(stats, PERF_RECORD_SAMPLE);
 	if (!filtered)
-		hists->stats.nr_non_filtered_samples++;
+		stats->nr_non_filtered_samples++;
 }
 
 static struct hist_entry *hists__add_dummy_entry(struct hists *hists,
