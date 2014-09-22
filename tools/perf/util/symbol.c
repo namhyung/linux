@@ -1332,8 +1332,6 @@ int dso__load(struct dso *dso, struct map *map, symbol_filter_t filter)
 	if (dso__loaded(dso, map->type))
 		goto out;
 
-	dso__set_loaded(dso, map->type);
-
 	if (dso->kernel) {
 		if (dso->kernel == DSO_TYPE_KERNEL)
 			dso__load_kernel_sym(dso, map, filter);
@@ -1457,6 +1455,8 @@ out_free:
 		ret = 0;
 
 out:
+	dso__set_loaded(dso, map->type);
+
 	pthread_mutex_unlock(&dso->lock);
 	return ret;
 }
