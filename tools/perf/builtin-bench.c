@@ -51,6 +51,7 @@ static struct bench sched_benchmarks[] = {
 static struct bench mem_benchmarks[] = {
 	{ "memcpy",	"Benchmark for memcpy()",			bench_mem_memcpy	},
 	{ "memset",	"Benchmark for memset() tests",			bench_mem_memset	},
+	{ "malloc",	"Benchmark for malloc() tests",			bench_mem_malloc	},
 	{ "all",	"Test all memory benchmarks",			NULL			},
 	{ NULL,		NULL,						NULL			}
 };

@@ -197,6 +197,24 @@ Show only the result with page faults before memset.
 --no-prefault::
 Show only the result without page faults before memset.
 
+*malloc*::
+Suite for evaluating performance of malloc and free.
+
+Options of *malloc*
+^^^^^^^^^^^^^^^^^^^
+-l::
+--length::
+Specify length of memory to set (default: 1MB).
+Available units are B, KB, MB, GB and TB (case insensitive).
+
+-i::
+--iterations::
+Repeat malloc/free loop this number of times.
+
+-t::
+--thread::
+Number of threads to run (default: nr of cpus).
+
 SUITES FOR 'numa'
 ~~~~~~~~~~~~~~~~~
 *mem*::
