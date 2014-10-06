@@ -173,7 +173,7 @@ static double do_memcpy_gettimeofday(memcpy_t fn, size_t len, bool prefault)
 		if (x < K)					\
 			printf(" %14lf B/Sec", x);		\
 		else if (x < K * K)				\
-			printf(" %14lfd KB/Sec", x / K);	\
+			printf(" %14lf KB/Sec", x / K);		\
 		else if (x < K * K * K)				\
 			printf(" %14lf MB/Sec", x / K / K);	\
 		else						\
