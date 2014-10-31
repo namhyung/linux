@@ -29,7 +29,8 @@ FILES=					\
 	test-timerfd.bin		\
 	test-libdw-dwarf-unwind.bin	\
 	test-compile-32.bin		\
-	test-compile-x32.bin
+	test-compile-x32.bin		\
+	test-zlib.bin
 
 CC := $(CROSS_COMPILE)gcc -MD
 PKG_CONFIG := $(CROSS_COMPILE)pkg-config
@@ -138,6 +139,9 @@ test-compile-32.bin:
 
 test-compile-x32.bin:
 	$(CC) -mx32 -o $(OUTPUT)$@ test-compile.c
+
+test-zlib.bin:
+	$(BUILD) -lz
 
 -include *.d
 
