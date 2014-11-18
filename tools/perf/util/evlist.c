@@ -194,6 +194,36 @@ error:
 	return -ENOMEM;
 }
 
+int perf_evlist__add_dummy_tracking(struct perf_evlist *evlist)
+{
+	struct perf_event_attr attr = {
+		.type = PERF_TYPE_SOFTWARE,
+		.config = PERF_COUNT_SW_DUMMY,
+		.exclude_kernel = 1,
+	};
+	struct perf_evsel *evsel;
+
+	event_attr_init(&attr);
+
+	evsel = perf_evsel__new(&attr);
+	if (evsel == NULL)
+		goto error;
+
+	/* use strdup() because free(evsel) assumes name is allocated */
+	evsel->name = strdup("dummy");
+	if (!evsel->name)
+		goto error_free;
+
+	perf_evlist__add(evlist, evsel);
+	perf_evlist__set_tracking_event(evlist, evsel);
+
+	return 0;
+error_free:
+	perf_evsel__delete(evsel);
+error:
+	return -ENOMEM;
+}
+
 static int perf_evlist__add_attrs(struct perf_evlist *evlist,
 				  struct perf_event_attr *attrs, size_t nr_attrs)
 {
