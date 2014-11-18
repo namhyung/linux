@@ -193,6 +193,44 @@ error:
 	return -ENOMEM;
 }
 
+int perf_evlist__prepend_dummy(struct perf_evlist *evlist)
+{
+	struct perf_event_attr attr = {
+		.type = PERF_TYPE_SOFTWARE,
+		.config = PERF_COUNT_SW_DUMMY,
+	};
+	struct perf_evsel *evsel, *pos;
+
+	event_attr_init(&attr);
+
+	evsel = perf_evsel__new(&attr);
+	if (evsel == NULL)
+		goto error;
+
+	/* use strdup() because free(evsel) assumes name is allocated */
+	evsel->name = strdup("dummy");
+	if (!evsel->name)
+		goto error_free;
+
+	list_for_each_entry(pos, &evlist->entries, node) {
+		pos->idx += 1;
+		pos->tracking = false;
+	}
+
+	list_add(&evsel->node, &evlist->entries);
+	evsel->idx = 0;
+	evsel->tracking = true;
+
+	if (!evlist->nr_entries++)
+		perf_evlist__set_id_pos(evlist);
+
+	return 0;
+error_free:
+	perf_evsel__delete(evsel);
+error:
+	return -ENOMEM;
+}
+
 static int perf_evlist__add_attrs(struct perf_evlist *evlist,
 				  struct perf_event_attr *attrs, size_t nr_attrs)
 {

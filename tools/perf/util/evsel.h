@@ -331,6 +331,21 @@ static inline bool perf_evsel__is_function_event(struct perf_evsel *evsel)
 #undef FUNCTION_EVENT
 }
 
+/**
+ * perf_evsel__is_dummy_tracking - Return whether given evsel is a dummy
+ * event for tracking meta events only
+ *
+ * @evsel - evsel selector to be tested
+ *
+ * Return %true if event is a dummy tracking event
+ */
+static inline bool perf_evsel__is_dummy_tracking(struct perf_evsel *evsel)
+{
+	return evsel->attr.type == PERF_TYPE_SOFTWARE &&
+		evsel->attr.config == PERF_COUNT_SW_DUMMY &&
+		evsel->attr.task == 1 && evsel->idx == 0;
+}
+
 struct perf_attr_details {
 	bool freq;
 	bool verbose;
