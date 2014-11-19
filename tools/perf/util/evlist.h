@@ -33,6 +33,8 @@ struct perf_mmap {
 	char		 event_copy[PERF_SAMPLE_MAX_SIZE] __attribute__((aligned(8)));
 };
 
+#define TRACK_MMAP_SIZE  (((128 * 1024 / page_size) + 1) * page_size)
+
 struct perf_evlist {
 	struct list_head entries;
 	struct hlist_head heads[PERF_EVLIST__HLIST_SIZE];
@@ -50,6 +52,7 @@ struct perf_evlist {
 	} workload;
 	struct fdarray	 pollfd;
 	struct perf_mmap *mmap;
+	struct perf_mmap *track_mmap;
 	struct auxtrace_mmap *auxtrace_mmap;
 	struct thread_map *threads;
 	struct cpu_map	  *cpus;
@@ -226,6 +229,12 @@ static inline void perf_mmap__write_tail(struct perf_mmap *md, u64 tail)
 bool perf_evlist__can_select_event(struct perf_evlist *evlist, const char *str);
 void perf_evlist__to_front(struct perf_evlist *evlist,
 			   struct perf_evsel *move_evsel);
+
+/* convert from/to negative idx for track mmap */
+static inline int track_mmap_idx(int idx)
+{
+	return -idx - 1;
+}
 
 /**
  * __evlist__for_each - iterate thru all the evsels
