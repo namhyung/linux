@@ -48,10 +48,13 @@ struct perf_evlist {
 	bool		 overwrite;
 	struct fdarray	 pollfd;
 	struct perf_mmap *mmap;
+	struct perf_mmap *track_mmap;
 	struct thread_map *threads;
 	struct cpu_map	  *cpus;
 	struct perf_evsel *selected;
 };
+
+#define TRACK_MMAP_SIZE  (((128 * 1024 / page_size) + 1) * page_size)
 
 struct perf_evsel_str_handler {
 	const char *name;
@@ -100,8 +103,8 @@ struct perf_evsel *perf_evlist__id2evsel(struct perf_evlist *evlist, u64 id);
 struct perf_sample_id *perf_evlist__id2sid(struct perf_evlist *evlist, u64 id);
 
 union perf_event *perf_evlist__mmap_read(struct perf_evlist *evlist, int idx);
-
 void perf_evlist__mmap_consume(struct perf_evlist *evlist, int idx);
+struct perf_mmap *perf_evlist__mmap_desc(struct perf_evlist *evlist, int idx);
 
 int perf_evlist__open(struct perf_evlist *evlist);
 void perf_evlist__close(struct perf_evlist *evlist);
@@ -210,6 +213,12 @@ static inline void perf_mmap__write_tail(struct perf_mmap *md,
 bool perf_evlist__can_select_event(struct perf_evlist *evlist, const char *str);
 void perf_evlist__to_front(struct perf_evlist *evlist,
 			   struct perf_evsel *move_evsel);
+
+/* convert from/to negative idx for track mmaps */
+static inline int track_mmap_idx(int idx)
+{
+	return -idx - 1;
+}
 
 /**
  * __evlist__for_each - iterate thru all the evsels

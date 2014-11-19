@@ -69,7 +69,7 @@ static int process_synthesized_event(struct perf_tool *tool,
 
 static int record__mmap_read(struct record *rec, int idx)
 {
-	struct perf_mmap *md = &rec->evlist->mmap[idx];
+	struct perf_mmap *md = perf_evlist__mmap_desc(rec->evlist, idx);
 	unsigned int head = perf_mmap__read_head(md);
 	unsigned int old = md->prev;
 	unsigned char *data = md->base + page_size;
@@ -105,6 +105,7 @@ static int record__mmap_read(struct record *rec, int idx)
 	}
 
 	md->prev = old;
+
 	perf_evlist__mmap_consume(rec->evlist, idx);
 out:
 	return rc;
@@ -259,6 +260,12 @@ static int record__mmap_read_all(struct record *rec)
 	for (i = 0; i < rec->evlist->nr_mmaps; i++) {
 		if (rec->evlist->mmap[i].base) {
 			if (record__mmap_read(rec, i) != 0) {
+				rc = -1;
+				goto out;
+			}
+		}
+		if (rec->evlist->track_mmap) {
+			if (record__mmap_read(rec, track_mmap_idx(i)) != 0) {
 				rc = -1;
 				goto out;
 			}
