@@ -133,7 +133,7 @@ static void perf_gtk__add_callchain(struct rb_root *root, GtkTreeStore *store,
 		}
 
 		if (callchain_param.mode == CHAIN_GRAPH_REL)
-			child_total = node->children_hit;
+			child_total = hits;
 		else
 			child_total = total;
 

@@ -128,7 +128,7 @@ static size_t __callchain__fprintf_graph(FILE *fp, struct rb_root *root,
 		}
 
 		if (callchain_param.mode == CHAIN_GRAPH_REL)
-			new_total = child->children_hit;
+			new_total = cumul;
 		else
 			new_total = total_samples;
 

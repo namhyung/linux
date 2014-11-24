@@ -568,7 +568,7 @@ static int hist_browser__show_callchain(struct hist_browser *browser,
 
 			if (first)
 				first = false;
-			else if (need_percent)
+			else if (need_percent || (level > 1 && child->hit))
 				extra_offset = LEVEL_OFFSET_STEP;
 
 			folded_sign = callchain_list__folded(chain);
@@ -581,7 +581,7 @@ static int hist_browser__show_callchain(struct hist_browser *browser,
 			str = callchain_list__sym_name(chain, bf, sizeof(bf),
 						       browser->show_dso);
 
-			if (was_first && need_percent) {
+			if (was_first && (need_percent || (level > 1 && child->hit))) {
 				double percent = cumul * 100.0 / total;
 
 				if (asprintf(&alloc_str, "%2.2f%% %s", percent, str) < 0)
@@ -605,7 +605,7 @@ do_next:
 			const int new_level = level + (extra_offset ? 2 : 1);
 
 			if (callchain_param.mode == CHAIN_GRAPH_REL)
-				new_total = child->children_hit;
+				new_total = cumul;
 			else
 				new_total = total;
 
