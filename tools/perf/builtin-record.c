@@ -58,6 +58,19 @@ static int record__write(struct record *rec, void *bf, size_t size)
 	return 0;
 }
 
+static int record__write_multi(struct record *rec, void *bf, size_t size, int idx)
+{
+	if (rec->file.is_multi && idx >= 0) {
+		int ret = perf_data_file__write_multi(rec->session->file,
+						      bf, size, idx);
+		if (ret < 0)
+			pr_err("failed to write perf data, error: %m\n");
+
+		return ret;
+	}
+	return record__write(rec, bf, size);
+}
+
 static int process_synthesized_event(struct perf_tool *tool,
 				     union perf_event *event,
 				     struct perf_sample *sample __maybe_unused,
@@ -89,7 +102,7 @@ static int record__mmap_read(struct record *rec, int idx)
 		size = md->mask + 1 - (old & md->mask);
 		old += size;
 
-		if (record__write(rec, buf, size) < 0) {
+		if (record__write_multi(rec, buf, size, idx) < 0) {
 			rc = -1;
 			goto out;
 		}
@@ -99,7 +112,7 @@ static int record__mmap_read(struct record *rec, int idx)
 	size = head - old;
 	old += size;
 
-	if (record__write(rec, buf, size) < 0) {
+	if (record__write_multi(rec, buf, size, idx) < 0) {
 		rc = -1;
 		goto out;
 	}
@@ -185,6 +198,10 @@ try_again:
 		}
 		goto out;
 	}
+
+	rc = perf_data_file__prepare_write(session->file, evlist->nr_mmaps);
+	if (rc < 0)
+		goto out;
 
 	session->evlist = evlist;
 	perf_session__set_id_hdr_size(session);
@@ -822,6 +839,8 @@ struct option __record_options[] = {
 		    "use per-thread mmaps"),
 	OPT_BOOLEAN('I', "intr-regs", &record.opts.sample_intr_regs,
 		    "Sample machine registers on interrupt"),
+	OPT_BOOLEAN('M', "multi", &record.opts.multi_file,
+		    "use multi-file storage"),
 	OPT_END()
 };
 
@@ -871,8 +890,10 @@ int cmd_record(int argc, const char **argv, const char *prefix __maybe_unused)
 		goto out_symbol_exit;
 	}
 
-	if (rec->opts.multi_file)
+	if (rec->opts.multi_file) {
+		rec->file.is_multi = true;
 		perf_evlist__prepend_dummy(rec->evlist);
+	}
 
 	if (rec->opts.target.tid && !rec->opts.no_inherit_set)
 		rec->opts.no_inherit = true;
