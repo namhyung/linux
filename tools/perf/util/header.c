@@ -2654,6 +2654,8 @@ int perf_session__read_header(struct perf_session *session)
 						   session->tevent.pevent))
 		goto out_delete_evlist;
 
+	perf_has_index = perf_header__has_feat(&session->header, HEADER_DATA_INDEX);
+
 	return 0;
 out_errno:
 	return -errno;

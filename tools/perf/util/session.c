@@ -195,6 +195,7 @@ void perf_session__delete(struct perf_session *session)
 	machines__exit(&session->machines);
 	if (session->file)
 		perf_data_file__close(session->file);
+	free(session->header.index);
 	free(session);
 }
 

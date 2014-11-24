@@ -267,6 +267,10 @@ AUX area tracing event. Optionally the number of bytes to capture per
 snapshot can be specified. In Snapshot Mode, trace data is captured only when
 signal SIGUSR2 is received.
 
+--index::
+Build an index table for sample data.  This will speed up perf report by
+parallel processing.
+
 SEE ALSO
 --------
 linkperf:perf-stat[1], linkperf:perf-list[1]
