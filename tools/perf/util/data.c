@@ -52,6 +52,21 @@ static int check_backup(struct perf_data_file *file)
 	return 0;
 }
 
+static void check_multi(struct perf_data_file *file)
+{
+	struct stat st;
+
+	/*
+	 * For write, it'll be determined by user (perf record -M)
+	 * whether to enable multi file data storage.
+	 */
+	if (perf_data_file__is_write(file))
+		return;
+
+	if (!stat(file->path, &st) && S_ISDIR(st.st_mode))
+		file->is_multi = true;
+}
+
 static int scandir_filter(const struct dirent *d)
 {
 	return !prefixcmp(d->d_name, "perf.data.");
@@ -205,6 +220,8 @@ int perf_data_file__open(struct perf_data_file *file)
 {
 	if (check_pipe(file))
 		return 0;
+
+	check_multi(file);
 
 	if (!file->path)
 		file->path = default_data_path(file);

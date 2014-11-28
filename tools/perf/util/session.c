@@ -1252,11 +1252,10 @@ fetch_mmaped_event(struct perf_session *session,
 #define NUM_MMAPS 128
 #endif
 
-static int __perf_session__process_events(struct perf_session *session,
+static int __perf_session__process_events(struct perf_session *session, int fd,
 					  u64 data_offset, u64 data_size,
 					  u64 file_size, struct perf_tool *tool)
 {
-	int fd = perf_data_file__fd(session->file);
 	u64 head, page_offset, file_offset, file_pos, size;
 	int err, mmap_prot, mmap_flags, map_idx = 0;
 	size_t	mmap_size;
@@ -1362,18 +1361,40 @@ int perf_session__process_events(struct perf_session *session,
 				 struct perf_tool *tool)
 {
 	u64 size = perf_data_file__size(session->file);
-	int err;
+	int err, i;
 
 	if (perf_session__register_idle_thread(session) == NULL)
 		return -ENOMEM;
 
-	if (!perf_data_file__is_pipe(session->file))
-		err = __perf_session__process_events(session,
-						     session->header.data_offset,
-						     session->header.data_size,
-						     size, tool);
-	else
-		err = __perf_session__process_pipe_events(session, tool);
+	if (perf_data_file__is_pipe(session->file))
+		return __perf_session__process_pipe_events(session, tool);
+
+	err = __perf_session__process_events(session,
+					     perf_data_file__fd(session->file),
+					     session->header.data_offset,
+					     session->header.data_size,
+					     size, tool);
+	if (!session->file->is_multi || err)
+		return err;
+
+	/*
+	 * For multi-file data storage, events are processed for each
+	 * cpu/thread so it's already ordered.
+	 */
+	tool->ordered_events = false;
+
+	for (i = 0; i < session->file->nr_multi; i++) {
+		int fd = perf_data_file__multi_fd(session->file, i);
+
+		size = lseek(fd, 0, SEEK_END);
+		if (size == 0)
+			continue;
+
+		err = __perf_session__process_events(session, fd,
+						     0, size, size, tool);
+		if (err < 0)
+			break;
+	}
 
 	return err;
 }
