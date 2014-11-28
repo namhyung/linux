@@ -39,6 +39,8 @@ void pthread__unblock_sigwinch(void);
 
 #include "util/target.h"
 
+extern bool perf_has_index;
+
 struct record_opts {
 	struct target target;
 	bool	     group;

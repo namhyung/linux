@@ -1486,7 +1486,9 @@ static int __perf_session__process_events(struct perf_session *session,
 	mmap_size = MMAP_SIZE;
 	if (mmap_size > file_size) {
 		mmap_size = file_size;
-		session->one_mmap = true;
+
+		if (!perf_has_index)
+			session->one_mmap = true;
 	}
 
 	memset(mmaps, 0, sizeof(mmaps));
@@ -1561,28 +1563,63 @@ out:
 	err = auxtrace__flush_events(session, tool);
 out_err:
 	ui_progress__finish();
-	perf_session__warn_about_errors(session);
 	ordered_events__free(&session->ordered_events);
 	auxtrace__free_events(session);
 	session->one_mmap = false;
 	return err;
 }
 
+static int __perf_session__process_indexed_events(struct perf_session *session)
+{
+	struct perf_data_file *file = session->file;
+	struct perf_tool *tool = session->tool;
+	u64 size = perf_data_file__size(file);
+	int err = 0, i;
+
+	for (i = 0; i < (int)session->header.nr_index; i++) {
+		struct perf_file_section *idx = &session->header.index[i];
+
+		if (!idx->size)
+			continue;
+
+		/*
+		 * For indexed data file, samples are processed for
+		 * each cpu/thread so it's already ordered.  However
+		 * meta-events at index 0 should be processed in order.
+		 */
+		if (i > 0)
+			tool->ordered_events = false;
+
+		err = __perf_session__process_events(session, idx->offset,
+						     idx->size, size);
+		if (err < 0)
+			break;
+	}
+
+	perf_session__warn_about_errors(session);
+	return err;
+}
+
 int perf_session__process_events(struct perf_session *session)
 {
-	u64 size = perf_data_file__size(session->file);
+	struct perf_data_file *file = session->file;
+	u64 size = perf_data_file__size(file);
 	int err;
 
 	if (perf_session__register_idle_thread(session) == NULL)
 		return -ENOMEM;
 
-	if (!perf_data_file__is_pipe(session->file))
-		err = __perf_session__process_events(session,
-						     session->header.data_offset,
-						     session->header.data_size, size);
-	else
-		err = __perf_session__process_pipe_events(session);
+	if (perf_data_file__is_pipe(file))
+		return __perf_session__process_pipe_events(session);
+	if (perf_has_index)
+		return __perf_session__process_indexed_events(session);
 
+	err = __perf_session__process_events(session,
+					     session->header.data_offset,
+					     session->header.data_size,
+					     size);
+
+	perf_session__warn_about_errors(session);
 	return err;
 }
 
