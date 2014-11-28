@@ -47,7 +47,7 @@ struct perf_annotate {
 };
 
 static int perf_evsel__add_sample(struct perf_evsel *evsel,
-				  struct perf_sample *sample __maybe_unused,
+				  struct perf_sample *sample,
 				  struct addr_location *al,
 				  struct perf_annotate *ann)
 {
@@ -67,7 +67,8 @@ static int perf_evsel__add_sample(struct perf_evsel *evsel,
 		return 0;
 	}
 
-	he = __hists__add_entry(hists, al, NULL, NULL, NULL, 1, 1, 0, true);
+	he = __hists__add_entry(hists, al, NULL, NULL, NULL, 1, 1, 0,
+				sample->time, true);
 	if (he == NULL)
 		return -ENOMEM;
 
