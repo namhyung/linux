@@ -28,6 +28,7 @@ struct thread {
 	bool			dead; /* thread is in dead_threads list */
 	struct list_head	comm_list;
 	u64			db_id;
+	u64			start_time;
 
 	void			*priv;
 	struct thread_stack	*ts;
