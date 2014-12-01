@@ -28,7 +28,7 @@ int machine__init(struct machine *machine, const char *root_dir, pid_t pid)
 	dsos__init(&machine->kernel_dsos);
 
 	machine->threads = RB_ROOT;
-	INIT_LIST_HEAD(&machine->dead_threads);
+	machine->dead_threads = RB_ROOT;
 	machine->last_match = NULL;
 
 	machine->vdso_info = NULL;
@@ -91,10 +91,21 @@ static void dsos__delete(struct dsos *dsos)
 
 void machine__delete_dead_threads(struct machine *machine)
 {
-	struct thread *n, *t;
+	struct rb_node *nd = rb_first(&machine->dead_threads);
 
-	list_for_each_entry_safe(t, n, &machine->dead_threads, node) {
-		list_del(&t->node);
+	while (nd) {
+		struct thread *t = rb_entry(nd, struct thread, rb_node);
+		struct thread *pos;
+
+		nd = rb_next(nd);
+		rb_erase(&t->rb_node, &machine->dead_threads);
+
+		while (!list_empty(&t->node)) {
+			pos = list_first_entry(&t->node, struct thread, node);
+			list_del(&pos->node);
+			thread__delete(pos);
+		}
+
 		thread__delete(t);
 	}
 }
@@ -106,8 +117,8 @@ void machine__delete_threads(struct machine *machine)
 	while (nd) {
 		struct thread *t = rb_entry(nd, struct thread, rb_node);
 
-		rb_erase(&t->rb_node, &machine->threads);
 		nd = rb_next(nd);
+		rb_erase(&t->rb_node, &machine->threads);
 		thread__delete(t);
 	}
 }
@@ -1236,13 +1247,36 @@ out_problem:
 
 static void machine__remove_thread(struct machine *machine, struct thread *th)
 {
+	struct rb_node **p = &machine->dead_threads.rb_node;
+	struct rb_node *parent = NULL;
+	struct thread *pos;
+
 	machine->last_match = NULL;
 	rb_erase(&th->rb_node, &machine->threads);
+
+	th->dead = true;
+
 	/*
 	 * We may have references to this thread, for instance in some hist_entry
-	 * instances, so just move them to a separate list.
+	 * instances, so just move them to a separate list in rbtree.
 	 */
-	list_add_tail(&th->node, &machine->dead_threads);
+	while (*p != NULL) {
+		parent = *p;
+		pos = rb_entry(parent, struct thread, rb_node);
+
+		if (pos->tid == th->tid) {
+			list_add_tail(&th->node, &pos->node);
+			return;
+		}
+
+		if (th->tid < pos->tid)
+			p = &(*p)->rb_left;
+		else
+			p = &(*p)->rb_right;
+	}
+
+	rb_link_node(&th->rb_node, parent, p);
+	rb_insert_color(&th->rb_node, &machine->dead_threads);
 }
 
 int machine__process_fork_event(struct machine *machine, union perf_event *event,
@@ -1649,7 +1683,7 @@ int machine__for_each_thread(struct machine *machine,
 			     void *priv)
 {
 	struct rb_node *nd;
-	struct thread *thread;
+	struct thread *thread, *pos;
 	int rc = 0;
 
 	for (nd = rb_first(&machine->threads); nd; nd = rb_next(nd)) {
@@ -1659,10 +1693,17 @@ int machine__for_each_thread(struct machine *machine,
 			return rc;
 	}
 
-	list_for_each_entry(thread, &machine->dead_threads, node) {
+	for (nd = rb_first(&machine->dead_threads); nd; nd = rb_next(nd)) {
+		thread = rb_entry(nd, struct thread, rb_node);
 		rc = fn(thread, priv);
 		if (rc != 0)
 			return rc;
+
+		list_for_each_entry(pos, &thread->node, node) {
+			rc = fn(pos, priv);
+			if (rc != 0)
+				return rc;
+		}
 	}
 	return rc;
 }
