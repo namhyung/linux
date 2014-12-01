@@ -68,8 +68,6 @@ static inline bool machine__kernel_ip(struct machine *machine, u64 ip)
 	return ip >= kernel_start;
 }
 
-struct thread *machine__find_thread(struct machine *machine, pid_t pid,
-				    pid_t tid);
 struct comm *machine__thread_exec_comm(struct machine *machine,
 				       struct thread *thread);
 
@@ -149,6 +147,12 @@ static inline bool machine__is_host(struct machine *machine)
 
 struct thread *machine__findnew_thread(struct machine *machine, pid_t pid,
 				       pid_t tid);
+struct thread *machine__find_thread(struct machine *machine, pid_t pid,
+				    pid_t tid);
+struct thread *machine__findnew_thread_time(struct machine *machine, pid_t pid,
+					    pid_t tid, u64 timestamp);
+struct thread *machine__find_thread_time(struct machine *machine, pid_t pid,
+					 pid_t tid, u64 timestamp);
 
 size_t machine__fprintf(struct machine *machine, FILE *fp);
 

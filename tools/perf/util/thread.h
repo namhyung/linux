@@ -25,6 +25,7 @@ struct thread {
 	struct list_head	comm_list;
 	int			comm_len;
 	u64			db_id;
+	u64			start_time;
 
 	void			*priv;
 	struct thread_stack	*ts;

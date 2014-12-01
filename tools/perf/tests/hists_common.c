@@ -80,6 +80,7 @@ static struct {
 struct machine *setup_fake_machine(struct machines *machines)
 {
 	struct machine *machine = machines__find(machines, HOST_KERNEL_ID);
+	struct perf_sample sample = { .time = -1ULL, };
 	size_t i;
 
 	if (machine == NULL) {
@@ -113,7 +114,7 @@ struct machine *setup_fake_machine(struct machines *machines)
 		strcpy(fake_mmap_event.mmap.filename,
 		       fake_mmap_info[i].filename);
 
-		machine__process_mmap_event(machine, &fake_mmap_event, NULL);
+		machine__process_mmap_event(machine, &fake_mmap_event, &sample);
 	}
 
 	for (i = 0; i < ARRAY_SIZE(fake_symbols); i++) {

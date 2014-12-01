@@ -549,8 +549,9 @@ static int process_sample_event(struct perf_tool *tool __maybe_unused,
 				struct machine *machine)
 {
 	struct addr_location al;
-	struct thread *thread = machine__findnew_thread(machine, sample->pid,
-							sample->tid);
+	struct thread *thread = machine__findnew_thread_time(machine, sample->pid,
+							     sample->tid,
+							     sample->time);
 
 	if (thread == NULL) {
 		pr_debug("problem processing %d event, skipping it.\n",

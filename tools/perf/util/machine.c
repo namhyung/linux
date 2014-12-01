@@ -431,6 +431,103 @@ struct thread *machine__find_thread(struct machine *machine, pid_t pid,
 	return __machine__findnew_thread(machine, pid, tid, false);
 }
 
+static void machine__remove_thread(struct machine *machine, struct thread *th);
+
+static struct thread *__machine__findnew_thread_time(struct machine *machine,
+						     pid_t pid, pid_t tid,
+						     u64 timestamp, bool create)
+{
+	struct thread *curr, *pos, *new;
+	struct thread *th = NULL;
+	struct rb_node **p;
+	struct rb_node *parent = NULL;
+	bool initial = timestamp == (u64)0;
+
+	curr = __machine__findnew_thread(machine, pid, tid, initial);
+	if (curr && timestamp >= curr->start_time)
+		return curr;
+
+	p = &machine->dead_threads.rb_node;
+	while (*p != NULL) {
+		parent = *p;
+		th = rb_entry(parent, struct thread, rb_node);
+
+		if (th->tid == tid) {
+			list_for_each_entry(pos, &th->node, node) {
+				if (timestamp >= pos->start_time &&
+				    pos->start_time > th->start_time) {
+					th = pos;
+					break;
+				}
+			}
+
+			if (timestamp >= th->start_time) {
+				machine__update_thread_pid(machine, th, pid);
+				return th;
+			}
+			break;
+		}
+
+		if (tid < th->tid)
+			p = &(*p)->rb_left;
+		else
+			p = &(*p)->rb_right;
+	}
+
+	if (!create)
+		return NULL;
+
+	if (!curr)
+		return __machine__findnew_thread(machine, pid, tid, true);
+
+	new = thread__new(pid, tid);
+	if (new == NULL)
+		return NULL;
+
+	new->start_time = timestamp;
+
+	if (*p) {
+		list_for_each_entry(pos, &th->node, node) {
+			/* sort by time */
+			if (timestamp >= pos->start_time) {
+				th = pos;
+				break;
+			}
+		}
+		list_add_tail(&new->node, &th->node);
+	} else {
+		rb_link_node(&new->rb_node, parent, p);
+		rb_insert_color(&new->rb_node, &machine->dead_threads);
+	}
+
+	/*
+	 * We have to initialize map_groups separately
+	 * after rb tree is updated.
+	 *
+	 * The reason is that we call machine__findnew_thread
+	 * within thread__init_map_groups to find the thread
+	 * leader and that would screwed the rb tree.
+	 */
+	if (thread__init_map_groups(new, machine)) {
+		thread__delete(new);
+		return NULL;
+	}
+
+	return new;
+}
+
+struct thread *machine__find_thread_time(struct machine *machine, pid_t pid,
+					 pid_t tid, u64 timestamp)
+{
+	return __machine__findnew_thread_time(machine, pid, tid, timestamp, false);
+}
+
+struct thread *machine__findnew_thread_time(struct machine *machine, pid_t pid,
+					    pid_t tid, u64 timestamp)
+{
+	return __machine__findnew_thread_time(machine, pid, tid, timestamp, true);
+}
+
 struct comm *machine__thread_exec_comm(struct machine *machine,
 				       struct thread *thread)
 {
@@ -1169,7 +1266,7 @@ int machine__process_mmap2_event(struct machine *machine,
 	}
 
 	thread = machine__findnew_thread(machine, event->mmap2.pid,
-					event->mmap2.tid);
+					 event->mmap2.tid);
 	if (thread == NULL)
 		goto out_problem;
 
@@ -1265,6 +1362,16 @@ static void machine__remove_thread(struct machine *machine, struct thread *th)
 		pos = rb_entry(parent, struct thread, rb_node);
 
 		if (pos->tid == th->tid) {
+			struct thread *old;
+
+			/* sort by time */
+			list_for_each_entry(old, &pos->node, node) {
+				if (th->start_time >= old->start_time) {
+					pos = old;
+					break;
+				}
+			}
+
 			list_add_tail(&th->node, &pos->node);
 			return;
 		}

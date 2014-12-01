@@ -13,10 +13,10 @@
 
 static int mmap_handler(struct perf_tool *tool __maybe_unused,
 			union perf_event *event,
-			struct perf_sample *sample __maybe_unused,
+			struct perf_sample *sample,
 			struct machine *machine)
 {
-	return machine__process_mmap2_event(machine, event, NULL);
+	return machine__process_mmap2_event(machine, event, sample);
 }
 
 static int init_live_machine(struct machine *machine)
@@ -61,11 +61,11 @@ static int unwind_entry(struct unwind_entry *entry, void *arg)
 __attribute__ ((noinline))
 static int unwind_thread(struct thread *thread)
 {
-	struct perf_sample sample;
+	struct perf_sample sample = {
+		.time = -1ULL,
+	};
 	unsigned long cnt = 0;
 	int err = -1;
-
-	memset(&sample, 0, sizeof(sample));
 
 	if (test__arch_unwind_sample(&sample, thread)) {
 		pr_debug("failed to get unwind sample\n");

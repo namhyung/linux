@@ -64,7 +64,7 @@ static int add_hist_entries(struct perf_evlist *evlist, struct machine *machine)
 	struct perf_evsel *evsel;
 	struct addr_location al;
 	struct hist_entry *he;
-	struct perf_sample sample = { .period = 1, };
+	struct perf_sample sample = { .period = 1, .time = -1ULL, };
 	size_t i = 0, k;
 
 	/*
