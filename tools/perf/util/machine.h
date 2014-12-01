@@ -30,8 +30,8 @@ struct machine {
 	bool		  comm_exec;
 	char		  *root_dir;
 	struct rb_root	  threads;
+	struct rb_root	  dead_threads;
 	pthread_rwlock_t  threads_lock;
-	struct list_head  dead_threads;
 	struct thread	  *last_match;
 	struct vdso_info  *vdso_info;
 	struct dsos	  user_dsos;
