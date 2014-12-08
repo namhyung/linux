@@ -304,7 +304,7 @@ try_again:
 
 	if (perf_evlist__mmap_ex(evlist, opts->mmap_pages, false,
 				 opts->auxtrace_mmap_pages,
-				 opts->auxtrace_snapshot_mode) < 0) {
+				 opts->auxtrace_snapshot_mode, false) < 0) {
 		if (errno == EPERM) {
 			pr_err("Permission error mapping pages.\n"
 			       "Consider increasing "
