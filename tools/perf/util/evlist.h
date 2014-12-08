@@ -127,9 +127,15 @@ int perf_evlist__parse_mmap_pages(const struct option *opt,
 				  const char *str,
 				  int unset);
 
-int perf_evlist__mmap(struct perf_evlist *evlist, unsigned int pages,
-		      bool overwrite);
+int perf_evlist__mmap_multi(struct perf_evlist *evlist, unsigned int pages,
+			    bool overwrite, bool use_track_mmap);
 void perf_evlist__munmap(struct perf_evlist *evlist);
+
+static inline int perf_evlist__mmap(struct perf_evlist *evlist,
+				    unsigned int pages, bool overwrite)
+{
+	return perf_evlist__mmap_multi(evlist, pages, overwrite, false);
+}
 
 void perf_evlist__disable(struct perf_evlist *evlist);
 void perf_evlist__enable(struct perf_evlist *evlist);
