@@ -888,6 +888,7 @@ struct dso *dso__new(const char *name)
 		RB_CLEAR_NODE(&dso->rb_node);
 		INIT_LIST_HEAD(&dso->node);
 		INIT_LIST_HEAD(&dso->data.open_entry);
+		pthread_mutex_init(&dso->lock, NULL);
 	}
 
 	return dso;
@@ -917,6 +918,7 @@ void dso__delete(struct dso *dso)
 	dso_cache__free(&dso->data.cache);
 	dso__free_a2l(dso);
 	zfree(&dso->symsrc_filename);
+	pthread_mutex_destroy(&dso->lock);
 	free(dso);
 }
 
