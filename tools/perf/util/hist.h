@@ -86,6 +86,7 @@ struct hist_entry_iter {
 
 	bool hide_unresolved;
 
+	struct hists *hists;
 	struct perf_evsel *evsel;
 	struct perf_sample *sample;
 	struct hist_entry *he;

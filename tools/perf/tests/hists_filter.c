@@ -64,6 +64,7 @@ static int add_hist_entries(struct perf_evlist *evlist,
 			};
 			struct hist_entry_iter iter = {
 				.evsel = evsel,
+				.hists = evsel__hists(evsel),
 				.sample = &sample,
 				.ops = &hist_iter_normal,
 				.hide_unresolved = false,

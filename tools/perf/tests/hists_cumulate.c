@@ -88,6 +88,7 @@ static int add_hist_entries(struct hists *hists, struct machine *machine)
 		};
 		struct hist_entry_iter iter = {
 			.evsel = evsel,
+			.hists = evsel__hists(evsel),
 			.sample	= &sample,
 			.hide_unresolved = false,
 		};
