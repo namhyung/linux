@@ -81,7 +81,8 @@ static int add_hist_entries(struct perf_evlist *evlist,
 							  &sample) < 0)
 				goto out;
 
-			if (hist_entry_iter__add(&iter, &al, evsel, &sample,
+			if (hist_entry_iter__add(&iter, evsel__hists(evsel),
+						 evsel, &al, &sample,
 						 PERF_MAX_STACK_DEPTH, NULL) < 0)
 				goto out;
 

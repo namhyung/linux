@@ -104,8 +104,8 @@ static int add_hist_entries(struct hists *hists, struct machine *machine)
 						  &sample) < 0)
 			goto out;
 
-		if (hist_entry_iter__add(&iter, &al, evsel, &sample,
-					 PERF_MAX_STACK_DEPTH, NULL) < 0)
+		if (hist_entry_iter__add(&iter, evsel__hists(evsel), evsel, &al,
+					 &sample, PERF_MAX_STACK_DEPTH, NULL) < 0)
 			goto out;
 
 		fake_samples[i].thread = al.thread;

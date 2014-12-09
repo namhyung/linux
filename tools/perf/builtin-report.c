@@ -166,8 +166,8 @@ static int process_sample_event(struct perf_tool *tool,
 	if (al.map != NULL)
 		al.map->dso->hit = 1;
 
-	ret = hist_entry_iter__add(&iter, &al, evsel, sample, rep->max_stack,
-				   rep);
+	ret = hist_entry_iter__add(&iter, evsel__hists(evsel), evsel, &al,
+				   sample, rep->max_stack, rep);
 	if (ret < 0)
 		pr_debug("problem adding hist entry, skipping event\n");
 
