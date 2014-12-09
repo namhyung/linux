@@ -1,8 +1,6 @@
 #ifndef PERF_BUILD_ID_H_
 #define PERF_BUILD_ID_H_ 1
 
-#define BUILD_ID_SIZE 20
-
 #include "tool.h"
 #include <linux/types.h>
 
