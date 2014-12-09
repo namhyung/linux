@@ -59,6 +59,7 @@ int perf_session_queue_event(struct perf_session *s, union perf_event *event,
 void perf_tool__fill_defaults(struct perf_tool *tool);
 
 int perf_session__deliver_event(struct perf_session *session,
+				struct events_stats *stats,
 				union perf_event *event,
 				struct perf_sample *sample,
 				struct perf_tool *tool, u64 file_offset);
