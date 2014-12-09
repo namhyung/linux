@@ -111,6 +111,9 @@ int test__dso_data(void)
 	memset(&machine, 0, sizeof(machine));
 
 	dso = dso__new((const char *)file);
+	TEST_ASSERT_VAL("failed to get dso", dso);
+
+	dso->binary_type = DSO_BINARY_TYPE__SYSTEM_PATH_DSO;
 
 	/* Basic 10 bytes tests. */
 	for (i = 0; i < ARRAY_SIZE(offsets); i++) {
@@ -199,6 +202,8 @@ static int dsos__create(int cnt, int size)
 
 		dsos[i] = dso__new(file);
 		TEST_ASSERT_VAL("failed to get dso", dsos[i]);
+
+		dsos[i]->binary_type = DSO_BINARY_TYPE__SYSTEM_PATH_DSO;
 	}
 
 	return 0;
