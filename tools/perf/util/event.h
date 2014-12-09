@@ -6,7 +6,6 @@
 
 #include "../perf.h"
 #include "map.h"
-#include "build-id.h"
 #include "perf_regs.h"
 
 struct mmap_event {
