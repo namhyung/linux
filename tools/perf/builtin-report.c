@@ -128,18 +128,16 @@ out:
 	return err;
 }
 
-static int process_sample_event(struct perf_tool *tool,
-				union perf_event *event,
-				struct perf_sample *sample,
-				struct perf_evsel *evsel,
-				struct machine *machine)
+static int __process_sample_event(struct perf_tool *tool __maybe_unused,
+				  union perf_event *event,
+				  struct perf_sample *sample,
+				  struct perf_evsel *evsel,
+				  struct machine *machine,
+				  struct hist_entry_iter *iter,
+				  struct hists *hists,
+				  struct report *rep)
 {
-	struct report *rep = container_of(tool, struct report, tool);
 	struct addr_location al;
-	struct hist_entry_iter iter = {
-		.hide_unresolved = rep->hide_unresolved,
-		.add_entry_cb = hist_iter__report_callback,
-	};
 	int ret;
 
 	if (perf_event__preprocess_sample(event, machine, &al, sample) < 0) {
@@ -155,23 +153,69 @@ static int process_sample_event(struct perf_tool *tool,
 		return 0;
 
 	if (sort__mode == SORT_MODE__BRANCH)
-		iter.ops = &hist_iter_branch;
+		iter->ops = &hist_iter_branch;
 	else if (rep->mem_mode)
-		iter.ops = &hist_iter_mem;
+		iter->ops = &hist_iter_mem;
 	else if (symbol_conf.cumulate_callchain)
-		iter.ops = &hist_iter_cumulative;
+		iter->ops = &hist_iter_cumulative;
 	else
-		iter.ops = &hist_iter_normal;
+		iter->ops = &hist_iter_normal;
 
 	if (al.map != NULL)
 		al.map->dso->hit = 1;
 
-	ret = hist_entry_iter__add(&iter, evsel__hists(evsel), evsel, &al,
+	ret = hist_entry_iter__add(iter, hists, evsel, &al,
 				   sample, rep->max_stack, rep);
 	if (ret < 0)
 		pr_debug("problem adding hist entry, skipping event\n");
 
 	return ret;
+}
+
+static int process_sample_event(struct perf_tool *tool,
+				union perf_event *event,
+				struct perf_sample *sample,
+				struct perf_evsel *evsel,
+				struct machine *machine)
+{
+	struct report *rep = container_of(tool, struct report, tool);
+	struct hist_entry_iter iter = {
+		.hide_unresolved = rep->hide_unresolved,
+		.add_entry_cb = hist_iter__report_callback,
+	};
+
+	return __process_sample_event(tool, event, sample, evsel, machine,
+				      &iter, evsel__hists(evsel), rep);
+}
+
+static int process_sample_event_multi(struct perf_tool *tool,
+				      union perf_event *event,
+				      struct perf_sample *sample,
+				      struct perf_evsel *evsel,
+				      struct machine *machine)
+{
+	struct perf_tool_mt *mt = container_of(tool, struct perf_tool_mt, tool);
+	struct report *rep = mt->priv;
+	struct hist_entry_iter iter = {
+		.hide_unresolved = rep->hide_unresolved,
+	};
+
+	return __process_sample_event(tool, event, sample, evsel, machine,
+				      &iter, &mt->hists[evsel->idx], rep);
+}
+
+static int multi_report_init(struct perf_tool_mt *mt, void *arg)
+{
+	struct report *rep = arg;
+
+	mt->priv = rep;
+	return 0;
+}
+
+static int multi_report_fini(struct perf_tool_mt *mt, void *arg __maybe_unused)
+{
+	mt->priv = NULL;
+	return 0;
 }
 
 static int process_read_event(struct perf_tool *tool,
@@ -483,7 +527,14 @@ static int __cmd_report(struct report *rep)
 	if (ret)
 		return ret;
 
-	ret = perf_session__process_events(session, &rep->tool);
+	if (file->is_multi) {
+		rep->tool.sample = process_sample_event_multi;
+		ret = perf_session__process_events_mt(session, &rep->tool,
+						      multi_report_init,
+						      multi_report_fini, rep);
+	} else {
+		ret = perf_session__process_events(session, &rep->tool);
+	}
 	if (ret)
 		return ret;
 
@@ -506,7 +557,12 @@ static int __cmd_report(struct report *rep)
 		}
 	}
 
-	report__collapse_hists(rep);
+	/*
+	 * For multi-file report, it already calls hists__multi_resort()
+	 * so no need to collapse here.
+	 */
+	if (!file->is_multi)
+		report__collapse_hists(rep);
 
 	if (session_done())
 		return 0;

@@ -953,7 +953,7 @@ void hist_entry__free(struct hist_entry *he)
  * collapse the histogram
  */
 
-static bool hists__collapse_insert_entry(struct hists *hists __maybe_unused,
+static bool hists__collapse_insert_entry(struct hists *hists,
 					 struct rb_root *root,
 					 struct hist_entry *he)
 {
@@ -990,6 +990,13 @@ static bool hists__collapse_insert_entry(struct hists *hists __maybe_unused,
 	}
 	hists->nr_entries++;
 
+	/*
+	 * For multi-threaded report, he->hists points to a dummy
+	 * hists in the struct perf_tool_mt.  Please see
+	 * perf_session__process_events_mt().
+	 */
+	he->hists = hists;
+
 	rb_link_node(&he->rb_node_in, parent, p);
 	rb_insert_color(&he->rb_node_in, root);
 	return true;
@@ -1017,18 +1024,11 @@ static void hists__apply_filters(struct hists *hists, struct hist_entry *he)
 	hists__filter_entry_by_symbol(hists, he);
 }
 
-void hists__collapse_resort(struct hists *hists, struct ui_progress *prog)
+static void __hists__collapse_resort(struct hists *hists, struct rb_root *root,
+				     struct ui_progress *prog)
 {
-	struct rb_root *root;
 	struct rb_node *next;
 	struct hist_entry *n;
-
-	if (!sort__need_collapse)
-		return;
-
-	hists->nr_entries = 0;
-
-	root = hists__get_rotate_entries_in(hists);
 
 	next = rb_first(root);
 
@@ -1050,6 +1050,27 @@ void hists__collapse_resort(struct hists *hists, struct ui_progress *prog)
 		if (prog)
 			ui_progress__update(prog, 1);
 	}
+}
+
+void hists__collapse_resort(struct hists *hists, struct ui_progress *prog)
+{
+	struct rb_root *root;
+
+	if (!sort__need_collapse)
+		return;
+
+	hists->nr_entries = 0;
+
+	root = hists__get_rotate_entries_in(hists);
+	__hists__collapse_resort(hists, root, prog);
+}
+
+void hists__multi_resort(struct hists *dst, struct hists *src)
+{
+	struct rb_root *root = src->entries_in;
+
+	sort__need_collapse = 1;
+	__hists__collapse_resort(dst, root, NULL);
 }
 
 static int hist_entry__sort(struct hist_entry *a, struct hist_entry *b)
@@ -1280,6 +1301,29 @@ void events_stats__inc(struct events_stats *stats, u32 type)
 	++stats->nr_events[type];
 }
 
+void events_stats__add(struct events_stats *dst, struct events_stats *src)
+{
+	int i;
+
+#define ADD(_field)  dst->_field += src->_field
+
+	ADD(total_period);
+	ADD(total_non_filtered_period);
+	ADD(total_lost);
+	ADD(total_invalid_chains);
+	ADD(nr_non_filtered_samples);
+	ADD(nr_lost_warned);
+	ADD(nr_unknown_events);
+	ADD(nr_invalid_chains);
+	ADD(nr_unknown_id);
+	ADD(nr_unprocessable_samples);
+
+	for (i = 0; i < PERF_RECORD_HEADER_MAX; i++)
+		ADD(nr_events[i]);
+
+#undef ADD
+}
+
 void hists__inc_nr_events(struct hists *hists, u32 type)
 {
 	events_stats__inc(&hists->stats, type);
@@ -1456,16 +1500,21 @@ int perf_hist_config(const char *var, const char *value)
 	return 0;
 }
 
-static int hists_evsel__init(struct perf_evsel *evsel)
+void __hists__init(struct hists *hists)
 {
-	struct hists *hists = evsel__hists(evsel);
-
 	memset(hists, 0, sizeof(*hists));
 	hists->entries_in_array[0] = hists->entries_in_array[1] = RB_ROOT;
 	hists->entries_in = &hists->entries_in_array[0];
 	hists->entries_collapsed = RB_ROOT;
 	hists->entries = RB_ROOT;
 	pthread_mutex_init(&hists->lock, NULL);
+}
+
+static int hists_evsel__init(struct perf_evsel *evsel)
+{
+	struct hists *hists = evsel__hists(evsel);
+
+	__hists__init(hists);
 	return 0;
 }
 
