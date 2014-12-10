@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include "util/event.h"
+#include "ui/progress.h"
 
 #include <linux/types.h>
 
@@ -68,6 +69,8 @@ struct perf_tool_mt {
 	struct events_stats	stats;
 	struct hists		*hists;
 	struct perf_session	*session;
+	struct ui_progress	prog;
+	struct ui_progress	*global_prog;
 	int			idx;
 
 	void			*priv;
