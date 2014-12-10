@@ -290,3 +290,25 @@ ssize_t perf_data_file__write_multi(struct perf_data_file *file,
 
 	return writen(file->multi_fd[idx], buf, size);
 }
+
+s64 perf_data_file__multi_size(struct perf_data_file *file)
+{
+	int i;
+	s64 total_size = perf_data_file__size(file);
+
+	if (!file->is_multi)
+		return total_size;
+
+	for (i = 0; i < file->nr_multi; i++) {
+		int fd = perf_data_file__multi_fd(file, i);
+		long size;
+
+		size = lseek(fd, 0, SEEK_END);
+		if (size < 0)
+			return (s64) -1;
+
+		total_size += size;
+	}
+
+	return total_size;
+}

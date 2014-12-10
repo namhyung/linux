@@ -2,6 +2,7 @@
 #define __PERF_DATA_H
 
 #include <stdbool.h>
+#include "perf.h"
 
 enum perf_data_mode {
 	PERF_DATA_MODE_WRITE,
@@ -60,5 +61,7 @@ ssize_t perf_data_file__write(struct perf_data_file *file,
 int perf_data_file__prepare_write(struct perf_data_file *file, int nr);
 ssize_t perf_data_file__write_multi(struct perf_data_file *file,
 				    void *buf, size_t size, int idx);
+
+s64 perf_data_file__multi_size(struct perf_data_file *file);
 
 #endif /* __PERF_DATA_H */

@@ -1065,12 +1065,13 @@ void hists__collapse_resort(struct hists *hists, struct ui_progress *prog)
 	__hists__collapse_resort(hists, root, prog);
 }
 
-void hists__multi_resort(struct hists *dst, struct hists *src)
+void hists__multi_resort(struct hists *dst, struct hists *src,
+			 struct ui_progress *prog)
 {
 	struct rb_root *root = src->entries_in;
 
 	sort__need_collapse = 1;
-	__hists__collapse_resort(dst, root, NULL);
+	__hists__collapse_resort(dst, root, prog);
 }
 
 static int hist_entry__sort(struct hist_entry *a, struct hist_entry *b)
