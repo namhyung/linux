@@ -1643,6 +1643,159 @@ int perf_session__process_events(struct perf_session *session)
 	return err;
 }
 
+static void *processing_thread_idx(void *arg)
+{
+	struct perf_tool_mt *mt_tool = arg;
+	struct perf_session *session = mt_tool->session;
+	u64 offset = session->header.index[mt_tool->idx].offset;
+	u64 size = session->header.index[mt_tool->idx].size;
+	u64 file_size = perf_data_file__size(session->file);
+
+	pr_debug("processing samples using thread [%d]\n", mt_tool->idx);
+	if (__perf_session__process_events(session, &mt_tool->stats,
+					   offset, size, file_size) < 0) {
+		pr_err("processing samples failed (thread [%d])\n", mt_tool->idx);
+		return NULL;
+	}
+
+	pr_debug("processing samples done for thread [%d]\n", mt_tool->idx);
+	return arg;
+}
+
+int perf_session__process_events_mt(struct perf_session *session, void *arg)
+{
+	struct perf_data_file *file = session->file;
+	struct perf_evlist *evlist = session->evlist;
+	struct perf_evsel *evsel;
+	u64 nr_entries = 0;
+	struct perf_tool *tool = session->tool;
+	struct perf_session *mt_sessions = NULL;
+	struct perf_tool_mt *mt_tools = NULL;
+	struct perf_session *ms;
+	struct perf_tool_mt *mt;
+	pthread_t *th_id;
+	int err, i, k;
+	int nr_index = session->header.nr_index;
+	u64 size = perf_data_file__size(file);
+
+	if (perf_data_file__is_pipe(file) || !session->header.index) {
+		pr_err("data file doesn't contain the index table\n");
+		return -EINVAL;
+	}
+
+	if (perf_session__register_idle_thread(session) == NULL)
+		return -ENOMEM;
+
+	err = __perf_session__process_events(session, &evlist->stats,
+					     session->header.index[0].offset,
+					     session->header.index[0].size,
+					     size);
+	if (err)
+		return err;
+
+	th_id = calloc(nr_index, sizeof(*th_id));
+	if (th_id == NULL)
+		goto out;
+
+	mt_sessions = calloc(nr_index, sizeof(*mt_sessions));
+	if (mt_sessions == NULL)
+		goto out;
+
+	mt_tools = calloc(nr_index, sizeof(*mt_tools));
+	if (mt_tools == NULL)
+		goto out;
+
+	tool->ordered_events = false;
+
+	for (i = 1; i < nr_index; i++) {
+		ms = &mt_sessions[i];
+		mt = &mt_tools[i];
+
+		ms->file = session->file;
+		ms->evlist = session->evlist;
+		ms->header = session->header;
+		ms->tevent = session->tevent;
+
+		memcpy(&mt->tool, tool, sizeof(*tool));
+
+		mt->hists = calloc(evlist->nr_entries, sizeof(*mt->hists));
+		if (mt->hists == NULL)
+			goto err;
+
+		for (k = 0; k < evlist->nr_entries; k++)
+			__hists__init(&mt->hists[k]);
+
+		mt->session = ms;
+		mt->idx = i;
+		mt->priv = arg;
+
+		pthread_create(&th_id[i], NULL, processing_thread_idx, mt);
+	}
+
+	for (i = 1; i < nr_index; i++) {
+		pthread_join(th_id[i], (void **)&mt);
+		if (mt == NULL) {
+			err = -EINVAL;
+			continue;
+		}
+
+		events_stats__add(&evlist->stats, &mt->stats);
+
+		evlist__for_each(evlist, evsel) {
+			struct hists *hists = evsel__hists(evsel);
+
+			events_stats__add(&hists->stats,
+					  &mt->hists[evsel->idx].stats);
+
+			nr_entries += mt->hists[evsel->idx].nr_entries;
+		}
+	}
+
+	for (i = 1; i < nr_index; i++) {
+		mt = &mt_tools[i];
+
+		evlist__for_each(evlist, evsel) {
+			struct hists *hists = evsel__hists(evsel);
+
+			if (perf_evsel__is_dummy_tracking(evsel))
+				continue;
+
+			hists__mt_resort(hists, &mt->hists[evsel->idx]);
+
+			/* Non-group events are considered as leader */
+			if (symbol_conf.event_group &&
+			    !perf_evsel__is_group_leader(evsel)) {
+				struct hists *leader_hists;
+
+				leader_hists = evsel__hists(evsel->leader);
+				hists__match(leader_hists, hists);
+				hists__link(leader_hists, hists);
+			}
+		}
+	}
+
+out:
+	perf_session__warn_about_errors(session, &evlist->stats);
+
+	if (mt_tools) {
+		for (i = 1; i < nr_index; i++)
+			free(mt_tools[i].hists);
+		free(mt_tools);
+	}
+
+	free(mt_sessions);
+	free(th_id);
+	return err;
+
+err:
+	while (i-- > 1) {
+		pthread_cancel(th_id[i]);
+		pthread_join(th_id[i], NULL);
+	}
+
+	goto out;
+}
+
 bool perf_session__has_traces(struct perf_session *session, const char *msg)
 {
 	struct perf_evsel *evsel;

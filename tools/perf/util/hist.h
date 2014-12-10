@@ -122,6 +122,7 @@ int hist_entry__sort_snprintf(struct hist_entry *he, char *bf, size_t size,
 void hist_entry__delete(struct hist_entry *he);
 
 void hists__output_resort(struct hists *hists, struct ui_progress *prog);
+void hists__mt_resort(struct hists *dst, struct hists *src);
 void hists__collapse_resort(struct hists *hists, struct ui_progress *prog);
 
 void hists__decay_entries(struct hists *hists, bool zap_user, bool zap_kernel);
@@ -134,6 +135,7 @@ void hists__inc_stats(struct hists *hists, struct hist_entry *h);
 void hists__inc_nr_events(struct hists *hists, u32 type);
 void hists__inc_nr_samples(struct hists *hists, bool filtered);
 void events_stats__inc(struct events_stats *stats, u32 type);
+void events_stats__add(struct events_stats *dst, struct events_stats *src);
 size_t events_stats__fprintf(struct events_stats *stats, FILE *fp);
 
 size_t hists__fprintf(struct hists *hists, bool show_header, int max_rows,
@@ -177,6 +179,7 @@ static inline struct hists *evsel__hists(struct perf_evsel *evsel)
 }
 
 int hists__init(void);
+void __hists__init(struct hists *hists);
 
 struct perf_hpp {
 	char *buf;
