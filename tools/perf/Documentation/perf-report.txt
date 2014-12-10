@@ -318,6 +318,9 @@ OPTIONS
 --header-only::
 	Show only perf.data header (forces --stdio).
 
+--multi-thread::
+	Speed up report by parallelizing sample processing using multi-thread.
+
 SEE ALSO
 --------
 linkperf:perf-stat[1], linkperf:perf-annotate[1]

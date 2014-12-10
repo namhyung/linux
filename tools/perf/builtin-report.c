@@ -51,6 +51,7 @@ struct report {
 	bool			mem_mode;
 	bool			header;
 	bool			header_only;
+	bool			multi_thread;
 	int			max_stack;
 	struct perf_read_values	show_threads_values;
 	const char		*pretty_printing_style;
@@ -80,6 +81,10 @@ static int report__config(const char *var, const char *value, void *cb)
 	}
 	if (!strcmp(var, "report.queue-size")) {
 		rep->queue_size = perf_config_u64(var, value);
+		return 0;
+	}
+	if (!strcmp(var, "report.multi-thread")) {
+		rep->multi_thread = perf_config_bool(var, value);
 		return 0;
 	}
 
@@ -527,7 +532,7 @@ static int __cmd_report(struct report *rep)
 	if (ret)
 		return ret;
 
-	if (file->is_multi) {
+	if (rep->multi_thread) {
 		rep->tool.sample = process_sample_event_multi;
 		ret = perf_session__process_events_mt(session, &rep->tool,
 						      multi_report_init,
@@ -558,10 +563,10 @@ static int __cmd_report(struct report *rep)
 	}
 
 	/*
-	 * For multi-file report, it already calls hists__multi_resort()
+	 * For multi-thread report, it already calls hists__multi_resort()
 	 * so no need to collapse here.
 	 */
-	if (!file->is_multi)
+	if (!rep->multi_thread)
 		report__collapse_hists(rep);
 
 	if (session_done())
@@ -770,6 +775,8 @@ int cmd_report(int argc, const char **argv, const char *prefix __maybe_unused)
 		     "Don't show entries under that percent", parse_percent_limit),
 	OPT_CALLBACK(0, "percentage", NULL, "relative|absolute",
 		     "how to display percentage of filtered entries", parse_filter_percentage),
+	OPT_BOOLEAN(0, "multi-thread", &report.multi_thread,
+		    "Speed up sample processing using multi-thead"),
 	OPT_END()
 	};
 	struct perf_data_file file = {
@@ -812,6 +819,11 @@ repeat:
 	if (report.queue_size) {
 		ordered_events__set_alloc_size(&session->ordered_events,
 					       report.queue_size);
+	}
+
+	if (report.multi_thread && !file.is_multi) {
+		pr_debug("fallback to single thread for single data file.\n");
+		report.multi_thread = false;
 	}
 
 	report.session = session;
