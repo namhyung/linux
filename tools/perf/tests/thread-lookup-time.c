@@ -7,7 +7,9 @@
 static int thread__print_cb(struct thread *th, void *arg __maybe_unused)
 {
 	printf("thread: %d, start time: %"PRIu64" %s\n",
-	       th->tid, th->start_time, th->dead ? "(dead)" : "");
+	       th->tid, th->start_time,
+	       th->dead ? "(dead)" : th->exited ? "(exited)" :
+	       th->missing ? "(missing)" : "");
 	return 0;
 }
 
@@ -105,6 +107,8 @@ static int lookup_with_timestamp(struct machine *machine)
 			machine__findnew_thread_time(machine, 0, 0, 70000) == t3);
 
 	machine__delete_threads(machine);
+	machine__delete_dead_threads(machine);
+	machine__delete_missing_threads(machine);
 	return 0;
 }
 
@@ -146,6 +150,8 @@ static int lookup_without_timestamp(struct machine *machine)
 			machine__findnew_thread_time(machine, 0, 0, -1ULL) == t3);
 
 	machine__delete_threads(machine);
+	machine__delete_dead_threads(machine);
+	machine__delete_missing_threads(machine);
 	return 0;
 }
 

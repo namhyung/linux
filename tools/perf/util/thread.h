@@ -23,6 +23,7 @@ struct thread {
 	bool			comm_set;
 	bool			exited; /* if set thread has exited */
 	bool			dead; /* thread is in dead_threads list */
+	bool			missing; /* thread is in missing_threads list */
 	struct list_head	comm_list;
 	int			comm_len;
 	u64			db_id;

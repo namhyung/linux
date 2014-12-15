@@ -31,6 +31,7 @@ struct machine {
 	char		  *root_dir;
 	struct rb_root	  threads;
 	struct rb_root	  dead_threads;
+	struct rb_root	  missing_threads;
 	struct thread	  *last_match;
 	struct vdso_info  *vdso_info;
 	struct dsos	  user_dsos;
@@ -116,6 +117,7 @@ void machines__set_comm_exec(struct machines *machines, bool comm_exec);
 struct machine *machine__new_host(void);
 int machine__init(struct machine *machine, const char *root_dir, pid_t pid);
 void machine__exit(struct machine *machine);
+void machine__delete_missing_threads(struct machine *machine);
 void machine__delete_dead_threads(struct machine *machine);
 void machine__delete_threads(struct machine *machine);
 void machine__delete(struct machine *machine);

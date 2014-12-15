@@ -60,7 +60,14 @@ static int perf_event__exit_del_thread(struct perf_tool *tool __maybe_unused,
 		    event->fork.ppid, event->fork.ptid);
 
 	if (thread) {
-		rb_erase(&thread->rb_node, &machine->threads);
+		if (thread->dead)
+			rb_erase(&thread->rb_node, &machine->dead_threads);
+		else if (thread->missing)
+			rb_erase(&thread->rb_node, &machine->missing_threads);
+		else
+			rb_erase(&thread->rb_node, &machine->threads);
+
+		list_del(&thread->node);
 		machine->last_match = NULL;
 		thread__delete(thread);
 	}

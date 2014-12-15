@@ -29,6 +29,7 @@ int machine__init(struct machine *machine, const char *root_dir, pid_t pid)
 
 	machine->threads = RB_ROOT;
 	machine->dead_threads = RB_ROOT;
+	machine->missing_threads = RB_ROOT;
 	machine->last_match = NULL;
 
 	machine->vdso_info = NULL;
@@ -86,6 +87,19 @@ static void dsos__delete(struct dsos *dsos)
 		RB_CLEAR_NODE(&pos->rb_node);
 		list_del(&pos->node);
 		dso__delete(pos);
+	}
+}
+
+void machine__delete_missing_threads(struct machine *machine)
+{
+	struct rb_node *nd = rb_first(&machine->missing_threads);
+
+	while (nd) {
+		struct thread *t = rb_entry(nd, struct thread, rb_node);
+
+		nd = rb_next(nd);
+		rb_erase(&t->rb_node, &machine->missing_threads);
+		thread__delete(t);
 	}
 }
 
@@ -437,11 +451,12 @@ static struct thread *__machine__findnew_thread_time(struct machine *machine,
 						     pid_t pid, pid_t tid,
 						     u64 timestamp, bool create)
 {
-	struct thread *curr, *pos, *new;
+	struct thread *curr, *pos, *new = NULL;
 	struct thread *th = NULL;
 	struct rb_node **p;
 	struct rb_node *parent = NULL;
 	bool initial = timestamp == (u64)0;
+	static pthread_mutex_t missing_thread_lock = PTHREAD_MUTEX_INITIALIZER;
 
 	curr = __machine__findnew_thread(machine, pid, tid, initial);
 	if (curr && timestamp >= curr->start_time)
@@ -474,44 +489,49 @@ static struct thread *__machine__findnew_thread_time(struct machine *machine,
 			p = &(*p)->rb_right;
 	}
 
-	if (!create)
-		return NULL;
+	pthread_mutex_lock(&missing_thread_lock);
 
-	if (!curr)
-		return __machine__findnew_thread(machine, pid, tid, true);
+	p = &machine->missing_threads.rb_node;
+	parent = NULL;
+
+	while (*p != NULL) {
+		parent = *p;
+		th = rb_entry(parent, struct thread, rb_node);
+
+		if (th->tid == tid) {
+			pthread_mutex_unlock(&missing_thread_lock);
+			return th;
+		}
+
+		if (tid < th->tid)
+			p = &(*p)->rb_left;
+		else
+			p = &(*p)->rb_right;
+	}
+
+	if (!create)
+		goto out;
 
 	new = thread__new(pid, tid);
 	if (new == NULL)
-		return NULL;
+		goto out;
 
-	new->start_time = timestamp;
-
-	if (*p) {
-		list_for_each_entry(pos, &th->node, node) {
-			/* sort by time */
-			if (timestamp >= pos->start_time) {
-				th = pos;
-				break;
-			}
-		}
-		list_add_tail(&new->node, &th->node);
-	} else {
-		rb_link_node(&new->rb_node, parent, p);
-		rb_insert_color(&new->rb_node, &machine->dead_threads);
-	}
+	/* missing threads are not bothered with timestamp */
+	new->start_time = 0;
+	new->missing = true;
 
 	/*
-	 * We have to initialize map_groups separately
-	 * after rb tree is updated.
-	 *
-	 * The reason is that we call machine__findnew_thread
-	 * within thread__init_map_groups to find the thread
-	 * leader and that would screwed the rb tree.
+	 * missing threads have their own map groups regardless of
+	 * leader for the sake of simplicity.  it's okay since the map
+	 * groups has no map in it anyway.
 	 */
-	if (thread__init_map_groups(new, machine)) {
-		thread__delete(new);
-		return NULL;
-	}
+	new->mg = map_groups__new(machine);
+
+	rb_link_node(&new->rb_node, parent, p);
+	rb_insert_color(&new->rb_node, &machine->missing_threads);
+
+out:
+	pthread_mutex_unlock(&missing_thread_lock);
 
 	return new;
 }
@@ -1350,6 +1370,7 @@ static void machine__remove_thread(struct machine *machine, struct thread *th)
 
 	machine->last_match = NULL;
 	rb_erase(&th->rb_node, &machine->threads);
+	RB_CLEAR_NODE(&th->rb_node);
 
 	th->dead = true;
 
@@ -1821,6 +1842,14 @@ int machine__for_each_thread(struct machine *machine,
 				return rc;
 		}
 	}
+
+	for (nd = rb_first(&machine->missing_threads); nd; nd = rb_next(nd)) {
+		thread = rb_entry(nd, struct thread, rb_node);
+		rc = fn(thread, priv);
+		if (rc != 0)
+			return rc;
+	}
+
 	return rc;
 }
 
