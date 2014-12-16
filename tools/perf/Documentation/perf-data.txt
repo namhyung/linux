@@ -13,3 +13,31 @@ SYNOPSIS
 DESCRIPTION
 -----------
 Data file related processing.
+
+COMMANDS
+--------
+split::
+	Split single data file (perf.data) into multiple files under a directory
+	in order to be reported by multiple threads.
+
+OPTIONS for 'split'
+---------------------
+-i::
+--input::
+	Specify input perf data file path.
+
+-o::
+--output::
+	Specify output perf data directory path.
+
+-v::
+--verbose::
+        Be more verbose (show counter open errors, etc).
+
+-f::
+--force::
+        Don't complain, do it.
+
+SEE ALSO
+--------
+linkperf:perf[1], linkperf:perf-report[1]
