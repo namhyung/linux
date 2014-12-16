@@ -699,6 +699,7 @@ static void perf_event__process_sample(struct perf_tool *tool,
 {
 	struct perf_top *top = container_of(tool, struct perf_top, tool);
 	struct addr_location al;
+	struct thread *thread;
 	int err;
 
 	if (!machine && perf_guest) {
@@ -724,7 +725,9 @@ static void perf_event__process_sample(struct perf_tool *tool,
 	if (event->header.misc & PERF_RECORD_MISC_EXACT_IP)
 		top->exact_samples++;
 
-	if (perf_event__preprocess_sample(event, machine, &al, sample) < 0)
+	/* Always use current thread tree for live profiling */
+	thread = machine__findnew_thread(machine, sample->pid, sample->tid);
+	if (__perf_event__preprocess_sample(event, machine, thread, &al, sample) < 0)
 		return;
 
 	if (!top->kptr_restrict_warned &&

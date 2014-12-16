@@ -863,14 +863,13 @@ void thread__find_addr_location_time(struct thread *thread, u8 cpumode,
 		al->sym = NULL;
 }
 
-int perf_event__preprocess_sample(const union perf_event *event,
-				  struct machine *machine,
-				  struct addr_location *al,
-				  struct perf_sample *sample)
+int __perf_event__preprocess_sample(const union perf_event *event,
+				    struct machine *machine,
+				    struct thread *thread,
+				    struct addr_location *al,
+				    struct perf_sample *sample)
 {
 	u8 cpumode = event->header.misc & PERF_RECORD_MISC_CPUMODE_MASK;
-	struct thread *thread = machine__findnew_thread_time(machine, sample->pid,
-							     sample->tid, sample->time);
 
 	if (thread == NULL)
 		return -1;
@@ -926,6 +925,19 @@ int perf_event__preprocess_sample(const union perf_event *event,
 	}
 
 	return 0;
+}
+
+int perf_event__preprocess_sample(const union perf_event *event,
+				  struct machine *machine,
+				  struct addr_location *al,
+				  struct perf_sample *sample)
+{
+	struct thread *thread;
+
+	thread = machine__findnew_thread_time(machine, sample->pid,
+					      sample->tid, sample->time);
+	return __perf_event__preprocess_sample(event, machine, thread,
+					       al, sample);
 }
 
 bool is_bts_event(struct perf_event_attr *attr)
