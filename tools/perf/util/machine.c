@@ -1153,7 +1153,7 @@ static bool machine__uses_kcore(struct machine *machine)
 static int machine__process_kernel_mmap_event(struct machine *machine,
 					      union perf_event *event)
 {
-	struct map *map;
+	struct map *map = NULL;
 	char kmmap_prefix[PATH_MAX];
 	enum dso_kernel_type kernel_type;
 	bool is_kernel_mmap;
@@ -1252,14 +1252,12 @@ static int machine__process_kernel_mmap_event(struct machine *machine,
 							 event->mmap.pgoff);
 		}
 
-		if (machine__is_default_guest(machine)) {
-			/*
-			 * preload dso of guest kernel and modules
-			 */
-			dso__load(kernel, machine->vmlinux_maps[MAP__FUNCTION],
-				  NULL);
-		}
+		map = machine->vmlinux_maps[MAP__FUNCTION];
 	}
+
+	if (map && map->dso->has_build_id)
+		map__load(map, NULL);
+
 	return 0;
 out_problem:
 	return -1;
@@ -1308,6 +1306,9 @@ int machine__process_mmap2_event(struct machine *machine,
 	if (map == NULL)
 		goto out_problem;
 
+	if (map->dso->has_build_id)
+		map__load(map, NULL);
+
 	thread__insert_map(thread, map);
 	return 0;
 
@@ -1354,6 +1355,9 @@ int machine__process_mmap_event(struct machine *machine, union perf_event *event
 
 	if (map == NULL)
 		goto out_problem;
+
+	if (map->dso->has_build_id)
+		map__load(map, NULL);
 
 	thread__insert_map(thread, map);
 	return 0;

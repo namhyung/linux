@@ -736,7 +736,6 @@ static void map_groups__find_addr_map(struct map_groups *mg, u8 cpumode,
 				      struct addr_location *al)
 {
 	struct machine *machine = mg->machine;
-	bool load_map = false;
 
 	al->machine = machine;
 	al->addr = addr;
@@ -753,13 +752,11 @@ static void map_groups__find_addr_map(struct map_groups *mg, u8 cpumode,
 	if (cpumode == PERF_RECORD_MISC_KERNEL && perf_host) {
 		al->level = 'k';
 		mg = &machine->kmaps;
-		load_map = true;
 	} else if (cpumode == PERF_RECORD_MISC_USER && perf_host) {
 		al->level = '.';
 	} else if (cpumode == PERF_RECORD_MISC_GUEST_KERNEL && perf_guest) {
 		al->level = 'g';
 		mg = &machine->kmaps;
-		load_map = true;
 	} else if (cpumode == PERF_RECORD_MISC_GUEST_USER && perf_guest) {
 		al->level = 'u';
 	} else {
@@ -793,16 +790,9 @@ try_again:
 		    mg != &machine->kmaps &&
 		    machine__kernel_ip(machine, al->addr)) {
 			mg = &machine->kmaps;
-			load_map = true;
 			goto try_again;
 		}
 	} else {
-		/*
-		 * Kernel maps might be changed when loading symbols so loading
-		 * must be done prior to using kernel maps.
-		 */
-		if (load_map)
-			map__load(al->map, machine->symbol_filter);
 		al->addr = al->map->map_ip(al->map, al->addr);
 	}
 }
