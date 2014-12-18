@@ -593,10 +593,7 @@ dso_cache__read(struct dso *dso, struct machine *machine,
 		}
 	}
 
-	if (-1 == lseek(dso->data.fd, cache_offset, SEEK_SET))
-		goto err_unlock;
-
-	ret = read(dso->data.fd, cache->data, DSO__DATA_CACHE_SIZE);
+	ret = pread(dso->data.fd, cache->data, DSO__DATA_CACHE_SIZE, cache_offset);
 	if (ret <= 0)
 		goto err_unlock;
 
