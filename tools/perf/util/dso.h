@@ -136,6 +136,8 @@ struct dso {
 	/* dso data file */
 	struct {
 		struct rb_root	 cache;
+#define DSO_LAST_CACHE_NR  16
+		struct dso_cache *last[DSO_LAST_CACHE_NR];
 		int		 fd;
 		int		 status;
 		u32		 status_seen;

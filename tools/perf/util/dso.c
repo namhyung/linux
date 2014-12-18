@@ -466,12 +466,31 @@ dso_cache__free(struct dso *dso)
 	pthread_mutex_unlock(&dso->lock);
 }
 
+static void update_last_cache(struct dso *dso, struct dso_cache *cache)
+{
+	int i;
+
+	for (i = DSO_LAST_CACHE_NR - 1; i > 0; i--)
+		dso->data.last[i] = dso->data.last[i-1];
+
+	dso->data.last[0] = cache;
+}
+
 static struct dso_cache *dso_cache__find(struct dso *dso, u64 offset)
 {
 	const struct rb_root *root = &dso->data.cache;
 	struct rb_node * const *p = &root->rb_node;
 	const struct rb_node *parent = NULL;
 	struct dso_cache *cache;
+	int i;
+
+	for (i = 0; i < DSO_LAST_CACHE_NR; i++) {
+		cache = dso->data.last[i];
+
+		if (cache && cache->offset <= offset &&
+		    offset < cache->offset + DSO__DATA_CACHE_SIZE)
+			return cache;
+	}
 
 	pthread_mutex_lock(&dso->lock);
 	while (*p != NULL) {
@@ -485,8 +504,10 @@ static struct dso_cache *dso_cache__find(struct dso *dso, u64 offset)
 			p = &(*p)->rb_left;
 		else if (offset >= end)
 			p = &(*p)->rb_right;
-		else
+		else {
+			update_last_cache(dso, cache);
 			goto out;
+		}
 	}
 	cache = NULL;
 out:
@@ -515,13 +536,16 @@ dso_cache__insert(struct dso *dso, struct dso_cache *new)
 			p = &(*p)->rb_left;
 		else if (offset >= end)
 			p = &(*p)->rb_right;
-		else
+		else {
+			update_last_cache(dso, cache);
 			goto out;
+		}
 	}
 
 	rb_link_node(&new->rb_node, parent, p);
 	rb_insert_color(&new->rb_node, root);
 
+	update_last_cache(dso, new);
 	cache = NULL;
 out:
 	pthread_mutex_unlock(&dso->lock);
