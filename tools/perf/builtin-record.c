@@ -538,9 +538,9 @@ static int __cmd_record(struct record *rec, int argc, const char **argv)
 		 */
 		fprintf(stderr,
 			"[ perf record: Captured and wrote %.3f MB %s (~%" PRIu64 " samples) ]\n",
-			(double)rec->bytes_written / 1024.0 / 1024.0,
+			(double)(u64)perf_data_file__multi_size(file) / 1024.0 / 1024.0,
 			file->path,
-			rec->bytes_written / 24);
+			perf_data_file__multi_size(file) / 24);
 	}
 
 out_child:
