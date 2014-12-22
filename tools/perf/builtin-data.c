@@ -4,6 +4,7 @@
 #include "debug.h"
 #include "session.h"
 #include "evlist.h"
+#include "hist.h"
 #include "parse-options.h"
 
 typedef int (*data_cmd_fn_t)(int argc, const char **argv, const char *prefix);
@@ -46,9 +47,11 @@ static void print_usage(void)
 }
 
 static int data_cmd_split(int argc, const char **argv, const char *prefix);
+static int data_cmd_merge(int argc, const char **argv, const char *prefix);
 
 static struct data_cmd data_cmds[] = {
 	{ "split", "split single data file into multi-file", data_cmd_split },
+	{ "merge", "merge multi-file data into single file", data_cmd_merge },
 	{ NULL },
 };
 
@@ -259,10 +262,203 @@ int data_cmd_split(int argc, const char **argv, const char *prefix __maybe_unuse
 	if (session == NULL)
 		return -1;
 
+	if (file.is_multi) {
+		pr_err("cannot split multi-file data: %s\n", input_name);
+		return -1;
+	}
+
 	split.session = session;
 	symbol__init(&session->header.env);
 
 	__data_cmd_split(&split);
+
+	perf_session__delete(session);
+	return 0;
+}
+
+struct data_merge {
+	struct perf_tool	tool;
+	struct perf_session	*session;
+	u64			data_written;
+};
+
+static union perf_event *read_event(struct perf_session *session, int fd,
+				    struct perf_sample *sample)
+{
+	struct perf_event_header h;
+	union perf_event *event;
+	ssize_t size;
+
+	if (readn(fd, &h, sizeof(h)) != sizeof(h))
+		return NULL;
+
+	event = malloc(h.size);
+	if (event == NULL)
+		return NULL;
+
+	memcpy(event, &h, sizeof(h));
+
+	size = h.size - sizeof(h);
+	if (readn(fd, &event->mmap.pid, size) != size)
+		return NULL;
+
+	if (event->header.type >= PERF_RECORD_HEADER_MAX)
+		return NULL;
+
+	events_stats__inc(&session->stats, event->header.type);
+
+	/*
+	 * For all kernel events we get the sample data
+	 */
+	if (perf_evlist__parse_sample(session->evlist, event, sample) < 0)
+		return NULL;
+
+	return event;
+}
+
+struct event_reader {
+	union perf_event *event;
+	struct perf_sample sample;
+	bool done;
+};
+
+static union perf_event *get_first_event(struct perf_session *session,
+					 struct event_reader *reader,
+					 struct perf_sample **psample)
+{
+	int i;
+	int fd;
+	union perf_event *first = NULL;
+	int first_idx = 0;
+	u64 first_timestamp;
+
+	for (i = 0; i <= session->file->nr_multi; i++) {
+		if (reader[i].event == NULL && !reader[i].done) {
+			if (i == 0)
+				fd = perf_data_file__fd(session->file);
+			else
+				fd = session->file->multi_fd[i - 1];
+
+			reader[i].event = read_event(session, fd,
+						     &reader[i].sample);
+			if (reader[i].event == NULL)
+				reader[i].done = true;
+		}
+
+		if (reader[i].event == NULL)
+			continue;
+
+		if (first == NULL || first_timestamp > reader[i].sample.time) {
+			first = reader[i].event;
+			first_timestamp = reader[i].sample.time;
+			first_idx = i;
+		}
+	}
+
+	*psample = &reader[first_idx].sample;
+	reader[first_idx].event = NULL;
+
+	return first;
+}
+
+static int __data_cmd_merge(struct data_merge *merge)
+{
+	struct perf_session *session = merge->session;
+	struct perf_sample *sample;
+	char *buf;
+	s64 size;
+	int output_fd;
+	struct event_reader *reader = NULL;
+	union perf_event *event;
+	int ret = -1;
+
+	if (!output_name)
+		output_name = "perf.data";
+
+	output_fd = open(output_name, O_RDWR|O_CREAT|O_TRUNC, S_IRUSR|S_IWUSR);
+	if (output_fd < 0) {
+		pr_err("cannot create output file\n");
+		return -1;
+	}
+
+	if (ftruncate(output_fd, perf_data_file__multi_size(session->file)))
+		pr_debug("ignoring ftruncate failure\n");
+
+	/* write header */
+	size = session->header.data_offset;
+	buf = malloc(size);
+	if (buf == NULL)
+		goto out;
+
+	if (readn(perf_data_file__fd(session->file), buf, size) != size)
+		goto out;
+
+	if (writen(output_fd, buf, size) != size)
+		goto out;
+
+	/* write data */
+	reader = calloc(session->file->nr_multi + 1, sizeof(*reader));
+	if (reader == NULL)
+		goto out;
+
+	while ((event = get_first_event(session, reader, &sample)) != NULL) {
+		size = event->header.size;
+		if (writen(output_fd, event, size) != size)
+			goto out;
+
+		merge->data_written += size;
+		free(event);
+	}
+
+	/* write features */
+
+	ret = 0;
+out:
+	free(buf);
+	free(reader);
+	close(output_fd);
+	return ret;
+}
+
+int data_cmd_merge(int argc, const char **argv, const char *prefix __maybe_unused)
+{
+	bool force = false;
+	struct perf_session *session;
+	struct perf_data_file file = {
+		.mode  = PERF_DATA_MODE_READ,
+	};
+	struct data_merge merge;
+	const char * const merge_usage[] = {
+		"perf data merge [<options>]",
+		NULL
+	};
+	const struct option merge_options[] = {
+	OPT_STRING('i', "input", &input_name, "file", "input directory name"),
+	OPT_STRING('o', "output", &output_name, "file", "output file name"),
+	OPT_BOOLEAN('f', "force", &force, "don't complain, do it"),
+	OPT_INCR('v', "verbose", &verbose, "be more verbose"),
+	OPT_END()
+	};
+
+	argc = parse_options(argc, argv, merge_options, merge_usage, 0);
+	if (argc)
+		usage_with_options(merge_usage, merge_options);
+
+	file.path = input_name;
+	file.force = force;
+	session = perf_session__new(&file, false, &merge.tool);
+	if (session == NULL)
+		return -1;
+
+	if (!file.is_multi) {
+		pr_err("cannot merge a single file: %s\n", input_name);
+		return -1;
+	}
+
+	merge.session = session;
+	symbol__init(&session->header.env);
+
+	__data_cmd_merge(&merge);
 
 	perf_session__delete(session);
 	return 0;
