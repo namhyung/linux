@@ -65,6 +65,7 @@ static bool show_period;
 static bool show_formula;
 static bool show_baseline_only;
 static unsigned int sort_compute;
+static unsigned int data_idx;
 
 static s64 compute_wdiff_w1;
 static s64 compute_wdiff_w2;
@@ -448,26 +449,30 @@ static void hists__precompute(struct hists *hists)
 	next = rb_first(root);
 	while (next != NULL) {
 		struct hist_entry *he, *pair;
+		struct data__file *d;
+		int i;
 
 		he   = rb_entry(next, struct hist_entry, rb_node_in);
 		next = rb_next(&he->rb_node_in);
 
-		pair = get_pair_data(he, &data__files[sort_compute]);
-		if (!pair)
-			continue;
+		data__for_each_file_new(i, d) {
+			pair = get_pair_data(he, d);
+			if (!pair)
+				continue;
 
-		switch (compute) {
-		case COMPUTE_DELTA:
-			compute_delta(he, pair);
-			break;
-		case COMPUTE_RATIO:
-			compute_ratio(he, pair);
-			break;
-		case COMPUTE_WEIGHTED_DIFF:
-			compute_wdiff(he, pair);
-			break;
-		default:
-			BUG_ON(1);
+			switch (compute) {
+			case COMPUTE_DELTA:
+				compute_delta(he, pair);
+				break;
+			case COMPUTE_RATIO:
+				compute_ratio(he, pair);
+				break;
+			case COMPUTE_WEIGHTED_DIFF:
+				compute_wdiff(he, pair);
+				break;
+			default:
+				BUG_ON(1);
+			}
 		}
 	}
 }
@@ -517,7 +522,7 @@ __hist_entry__cmp_compute(struct hist_entry *left, struct hist_entry *right,
 
 static int64_t
 hist_entry__cmp_compute(struct hist_entry *left, struct hist_entry *right,
-			int c)
+			int c, int sort_idx)
 {
 	bool pairs_left  = hist_entry__has_pairs(left);
 	bool pairs_right = hist_entry__has_pairs(right);
@@ -529,8 +534,8 @@ hist_entry__cmp_compute(struct hist_entry *left, struct hist_entry *right,
 	if (!pairs_left || !pairs_right)
 		return pairs_left ? -1 : 1;
 
-	p_left  = get_pair_data(left,  &data__files[sort_compute]);
-	p_right = get_pair_data(right, &data__files[sort_compute]);
+	p_left  = get_pair_data(left,  &data__files[sort_idx]);
+	p_right = get_pair_data(right, &data__files[sort_idx]);
 
 	if (!p_left && !p_right)
 		return 0;
@@ -555,8 +560,13 @@ hist_entry__cmp_nop(struct hist_entry *left __maybe_unused,
 static int64_t
 hist_entry__cmp_baseline(struct hist_entry *left, struct hist_entry *right)
 {
-	if (sort_compute)
-		return 0;
+	/*
+	 * This function will be called first for each entry to resort
+	 * output.  Next compare-functions use this idx to find their
+	 * data and increase it for next data so we need to initialize
+	 * it everytime.
+	 */
+	data_idx = 0;
 
 	if (left->stat.period == right->stat.period)
 		return 0;
@@ -566,19 +576,19 @@ hist_entry__cmp_baseline(struct hist_entry *left, struct hist_entry *right)
 static int64_t
 hist_entry__cmp_delta(struct hist_entry *left, struct hist_entry *right)
 {
-	return hist_entry__cmp_compute(right, left, COMPUTE_DELTA);
+	return hist_entry__cmp_compute(right, left, COMPUTE_DELTA, ++data_idx);
 }
 
 static int64_t
 hist_entry__cmp_ratio(struct hist_entry *left, struct hist_entry *right)
 {
-	return hist_entry__cmp_compute(right, left, COMPUTE_RATIO);
+	return hist_entry__cmp_compute(right, left, COMPUTE_RATIO, ++data_idx);
 }
 
 static int64_t
 hist_entry__cmp_wdiff(struct hist_entry *left, struct hist_entry *right)
 {
-	return hist_entry__cmp_compute(right, left, COMPUTE_WEIGHTED_DIFF);
+	return hist_entry__cmp_compute(right, left, COMPUTE_WEIGHTED_DIFF, ++data_idx);
 }
 
 static void hists__process(struct hists *hists)
@@ -586,9 +596,7 @@ static void hists__process(struct hists *hists)
 	if (show_baseline_only)
 		hists__baseline_only(hists);
 
-	if (sort_compute)
-		hists__precompute(hists);
-
+	hists__precompute(hists);
 	hists__output_resort(hists, NULL);
 
 	hists__fprintf(hists, true, 0, 0, 0, stdout);
