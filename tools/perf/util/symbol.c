@@ -396,6 +396,7 @@ static struct symbol *symbols__find_by_name(struct rb_root *symbols,
 					    const char *name)
 {
 	struct rb_node *n;
+	struct symbol_name_rb_node *s;
 
 	if (symbols == NULL)
 		return NULL;
@@ -403,7 +404,6 @@ static struct symbol *symbols__find_by_name(struct rb_root *symbols,
 	n = symbols->rb_node;
 
 	while (n) {
-		struct symbol_name_rb_node *s;
 		int cmp;
 
 		s = rb_entry(n, struct symbol_name_rb_node, rb_node);
@@ -414,10 +414,24 @@ static struct symbol *symbols__find_by_name(struct rb_root *symbols,
 		else if (cmp > 0)
 			n = n->rb_right;
 		else
-			return &s->sym;
+			break;
 	}
 
-	return NULL;
+	if (n == NULL)
+		return NULL;
+
+	/* return first symbol that has same name (if any) */
+	for (n = rb_prev(n); n; n = rb_prev(n)) {
+		struct symbol_name_rb_node *tmp;
+
+		tmp = rb_entry(n, struct symbol_name_rb_node, rb_node);
+		if (strcmp(tmp->sym.name, s->sym.name))
+			break;
+
+		s = tmp;
+	}
+
+	return &s->sym;
 }
 
 struct symbol *dso__find_symbol(struct dso *dso,
@@ -436,10 +450,27 @@ struct symbol *dso__next_symbol(struct symbol *sym)
 	return symbols__next(sym);
 }
 
+/*
+ * When @link is NULL, returns first symbol that matched with @name.
+ * Otherwise, returns next symbol after @link in case some (local) symbols
+ * have same name, or NULL.
+ */
 struct symbol *dso__find_symbol_by_name(struct dso *dso, enum map_type type,
-					const char *name)
+					const char *name, struct symbol *link)
 {
-	return symbols__find_by_name(&dso->symbol_names[type], name);
+	struct rb_node *n;
+	struct symbol_name_rb_node *s;
+
+	if (link == NULL)
+		return symbols__find_by_name(&dso->symbol_names[type], name);
+
+	s = container_of(link, struct symbol_name_rb_node, sym);
+	n = rb_prev(&s->rb_node);
+	if (n == NULL)
+		return NULL;
+
+	s = rb_entry(n, struct symbol_name_rb_node, rb_node);
+	return strcmp(s->sym.name, name) ? NULL : &s->sym;
 }
 
 void dso__sort_by_name(struct dso *dso, enum map_type type)

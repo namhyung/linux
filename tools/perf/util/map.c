@@ -302,7 +302,8 @@ struct symbol *map__find_symbol(struct map *map, u64 addr,
 }
 
 struct symbol *map__find_symbol_by_name(struct map *map, const char *name,
-					symbol_filter_t filter)
+					symbol_filter_t filter,
+					struct symbol *link)
 {
 	if (map__load(map, filter) < 0)
 		return NULL;
@@ -310,7 +311,7 @@ struct symbol *map__find_symbol_by_name(struct map *map, const char *name,
 	if (!dso__sorted_by_name(map->dso, map->type))
 		dso__sort_by_name(map->dso, map->type);
 
-	return dso__find_symbol_by_name(map->dso, map->type, name);
+	return dso__find_symbol_by_name(map->dso, map->type, name, link);
 }
 
 struct map *map__clone(struct map *map)
@@ -542,7 +543,7 @@ struct symbol *map_groups__find_symbol_by_name(struct map_groups *mg,
 
 	for (nd = rb_first(&mg->maps[type]); nd; nd = rb_next(nd)) {
 		struct map *pos = rb_entry(nd, struct map, rb_node);
-		struct symbol *sym = map__find_symbol_by_name(pos, name, filter);
+		struct symbol *sym = map__find_symbol_by_name(pos, name, filter, NULL);
 
 		if (sym == NULL)
 			continue;

@@ -137,7 +137,8 @@ int map__load(struct map *map, symbol_filter_t filter);
 struct symbol *map__find_symbol(struct map *map,
 				u64 addr, symbol_filter_t filter);
 struct symbol *map__find_symbol_by_name(struct map *map, const char *name,
-					symbol_filter_t filter);
+					symbol_filter_t filter,
+					struct symbol *link);
 void map__fixup_start(struct map *map);
 void map__fixup_end(struct map *map);
 
