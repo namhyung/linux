@@ -883,6 +883,24 @@ static int write_auxtrace(int fd, struct perf_header *h,
 	return err;
 }
 
+static int write_data_index(int fd, struct perf_header *h,
+			    struct perf_evlist *evlist __maybe_unused)
+{
+	int ret;
+	unsigned i;
+
+	ret = do_write(fd, &h->nr_index, sizeof(h->nr_index));
+	if (ret < 0)
+		return ret;
+
+	for (i = 0; i < h->nr_index; i++) {
+		ret = do_write(fd, &h->index[i], sizeof(*h->index));
+		if (ret < 0)
+			return ret;
+	}
+	return 0;
+}
+
 static void print_hostname(struct perf_header *ph, int fd __maybe_unused,
 			   FILE *fp)
 {
@@ -1231,6 +1249,12 @@ static void print_group_desc(struct perf_header *ph, int fd __maybe_unused,
 				fprintf(fp, "}\n");
 		}
 	}
+}
+
+static void print_data_index(struct perf_header *ph __maybe_unused,
+			     int fd __maybe_unused, FILE *fp)
+{
+	fprintf(fp, "# contains data index for parallel processing\n");
 }
 
 static int __event_process_build_id(struct build_id_event *bev,
@@ -1841,6 +1865,7 @@ out_free:
 	return ret;
 }
 
+
 static int process_auxtrace(struct perf_file_section *section,
 			    struct perf_header *ph, int fd,
 			    void *data __maybe_unused)
@@ -1855,6 +1880,44 @@ static int process_auxtrace(struct perf_file_section *section,
 	if (err < 0)
 		pr_err("Failed to process auxtrace index\n");
 	return err;
+}
+
+static int process_data_index(struct perf_file_section *section __maybe_unused,
+			      struct perf_header *ph, int fd,
+			      void *data __maybe_unused)
+{
+	ssize_t ret;
+	u64 nr_idx;
+	unsigned i;
+	struct perf_file_section *idx;
+
+	ret = readn(fd, &nr_idx, sizeof(nr_idx));
+	if (ret != sizeof(nr_idx))
+		return -1;
+
+	if (ph->needs_swap)
+		nr_idx = bswap_64(nr_idx);
+
+	idx = calloc(nr_idx, sizeof(*idx));
+	if (idx == NULL)
+		return -1;
+
+	for (i = 0; i < nr_idx; i++) {
+		ret = readn(fd, &idx[i], sizeof(*idx));
+		if (ret != sizeof(*idx)) {
+			free(idx);
+			return -1;
+		}
+
+		if (ph->needs_swap) {
+			idx[i].offset = bswap_64(idx[i].offset);
+			idx[i].size   = bswap_64(idx[i].size);
+		}
+	}
+
+	ph->index = idx;
+	ph->nr_index = nr_idx;
+	return 0;
 }
 
 struct feature_ops {
@@ -1898,6 +1961,7 @@ static const struct feature_ops feat_ops[HEADER_LAST_FEATURE] = {
 	FEAT_OPP(HEADER_PMU_MAPPINGS,	pmu_mappings),
 	FEAT_OPP(HEADER_GROUP_DESC,	group_desc),
 	FEAT_OPP(HEADER_AUXTRACE,	auxtrace),
+	FEAT_OPP(HEADER_DATA_INDEX,	data_index),
 };
 
 struct header_print_data {
