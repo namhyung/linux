@@ -1673,25 +1673,50 @@ static struct ui_progress_ops mt_progress__ops = {
 	.update = mt_progress__update,
 };
 
+static int perf_session__get_index(struct perf_session *session)
+{
+	int ret;
+	static unsigned idx = 1;
+	static pthread_mutex_t idx_lock = PTHREAD_MUTEX_INITIALIZER;
+
+	pthread_mutex_lock(&idx_lock);
+	if (idx < session->header.nr_index)
+		ret = idx++;
+	else
+		ret = -1;
+	pthread_mutex_unlock(&idx_lock);
+
+	return ret;
+}
+
 static void *processing_thread_idx(void *arg)
 {
 	struct perf_tool_mt *mt_tool = arg;
 	struct perf_session *session = mt_tool->session;
-	u64 offset = session->header.index[mt_tool->idx].offset;
-	u64 size = session->header.index[mt_tool->idx].size;
 	u64 file_size = perf_data_file__size(session->file);
+	int idx;
 
-	ui_progress__init(&mt_tool->prog, size, "");
+	while ((idx = perf_session__get_index(session)) >= 0) {
+		u64 offset = session->header.index[idx].offset;
+		u64 size = session->header.index[idx].size;
+		struct perf_tool_mt *mtt = &mt_tool[idx];
 
-	pr_debug("processing samples using thread [%d]\n", mt_tool->idx);
-	if (__perf_session__process_events(session, &mt_tool->stats,
-					   offset, size, file_size,
-					   &mt_tool->prog) < 0) {
-		pr_err("processing samples failed (thread [%d])\n", mt_tool->idx);
-		return NULL;
+		if (size == 0)
+			continue;
+
+		pr_debug("processing samples [index %d]\n", idx);
+
+		ui_progress__init(&mtt->prog, size, "");
+
+		if (__perf_session__process_events(mtt->session, &mtt->stats,
+						   offset, size, file_size,
+						   &mtt->prog) < 0) {
+			pr_err("processing samples failed [index %d]\n", idx);
+			return NULL;
+		}
+		pr_debug("processing samples done [index %d]\n", idx);
 	}
 
-	pr_debug("processing samples done for thread [%d]\n", mt_tool->idx);
 	return arg;
 }
 
@@ -1711,6 +1736,7 @@ int perf_session__process_events_mt(struct perf_session *session, void *arg)
 	int err, i, k;
 	int nr_index = session->header.nr_index;
 	u64 size = perf_data_file__size(file);
+	int nr_thread = sysconf(_SC_NPROCESSORS_ONLN);
 
 	if (perf_data_file__is_pipe(file) || !session->header.index) {
 		pr_err("data file doesn't contain the index table\n");
@@ -1747,15 +1773,18 @@ int perf_session__process_events_mt(struct perf_session *session, void *arg)
 
 	tool->ordered_events = false;
 
-	for (i = 1; i < nr_index; i++) {
+	for (i = 0; i < nr_index; i++) {
 		ms = &mt_sessions[i];
 		mt = &mt_tools[i];
 
+		ms->tool = &mt->tool;
 		ms->file = session->file;
 		ms->evlist = session->evlist;
 		ms->header = session->header;
 		ms->tevent = session->tevent;
+		ms->machines = session->machines;
 
+		ordered_events__init(&ms->ordered_events, NULL);
 		memcpy(&mt->tool, tool, sizeof(*tool));
 
 		mt->hists = calloc(evlist->nr_entries, sizeof(*mt->hists));
@@ -1766,20 +1795,28 @@ int perf_session__process_events_mt(struct perf_session *session, void *arg)
 			__hists__init(&mt->hists[k]);
 
 		mt->session = ms;
-		mt->idx = i;
 		mt->priv = arg;
 		mt->global_prog = &prog;
-
-		pthread_create(&th_id[i], NULL, processing_thread_idx, mt);
 	}
 
-	for (i = 1; i < nr_index; i++) {
-		pthread_join(th_id[i], (void **)&mt);
-		if (mt == NULL) {
-			err = -EINVAL;
-			continue;
-		}
+	if (nr_thread > nr_index - 1)
+		nr_thread = nr_index - 1;
 
+	th_id = calloc(nr_thread, sizeof(*th_id));
+	if (th_id == NULL)
+		goto out;
+
+	for (i = 0; i < nr_thread; i++)
+		pthread_create(&th_id[i], NULL, processing_thread_idx, mt_tools);
+
+	for (i = 0; i < nr_thread; i++) {
+		pthread_join(th_id[i], (void **)&mt);
+		if (mt == NULL)
+			err = -EINVAL;
+	}
+
+	for (i = 0; i < nr_index; i++) {
+		mt = &mt_tools[i];
 		events_stats__add(&evlist->stats, &mt->stats);
 
 		evlist__for_each(evlist, evsel) {
@@ -1795,7 +1832,7 @@ int perf_session__process_events_mt(struct perf_session *session, void *arg)
 	ui_progress__ops = orig_progress__ops;
 	ui_progress__init(&prog, nr_entries, "Merging related events...");
 
-	for (i = 1; i < nr_index; i++) {
+	for (i = 0; i < nr_index; i++) {
 		mt = &mt_tools[i];
 
 		evlist__for_each(evlist, evsel) {
@@ -1823,7 +1860,7 @@ out:
 	perf_session__warn_about_errors(session, &evlist->stats);
 
 	if (mt_tools) {
-		for (i = 1; i < nr_index; i++)
+		for (i = 0; i < nr_index; i++)
 			free(mt_tools[i].hists);
 		free(mt_tools);
 	}
@@ -1833,7 +1870,7 @@ out:
 	return err;
 
 err:
-	while (i-- > 1) {
+	while (i-- > 0) {
 		pthread_cancel(th_id[i]);
 		pthread_join(th_id[i], NULL);
 	}

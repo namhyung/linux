@@ -71,7 +71,6 @@ struct perf_tool_mt {
 	struct perf_session	*session;
 	struct ui_progress	prog;
 	struct ui_progress	*global_prog;
-	int			idx;
 
 	void			*priv;
 };
