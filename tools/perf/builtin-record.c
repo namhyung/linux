@@ -470,6 +470,43 @@ static void workload_exec_failed_signal(int signo __maybe_unused,
 	child_finished = 1;
 }
 
+static int synthesize_workload_comm_event(struct perf_evlist *evlist, void *arg)
+{
+	union perf_event *event;
+	struct record *rec = arg;
+	struct machine *machine = &rec->session->machines.host;
+	int pid = evlist->workload.pid;
+	const char *comm_str = program_invocation_short_name;
+	size_t comm_size, total_size;
+	int ret;
+
+	comm_size = PERF_ALIGN(strlen(comm_str) + 1, sizeof(u64));
+	total_size = sizeof(event->comm) + machine->id_hdr_size;
+	/*
+	 * (aligned) comm size might be smaller than expected size
+	 * (i.e.  size of event->comm.comm[]), in that case it needs
+	 * to shrink the total size.
+	 */
+	if (comm_size < sizeof(event->comm.comm))
+		total_size -= sizeof(event->comm.comm) - comm_size;
+
+	event = zalloc(total_size);
+	if (event == NULL)
+		return -ENOMEM;
+
+	event->comm.header.type = PERF_RECORD_COMM;
+	event->comm.header.size = total_size;
+
+	event->comm.pid = pid;
+	event->comm.tid = pid;
+	strncpy(event->comm.comm, comm_str, comm_size);
+
+	ret = record__write(rec, event, total_size);
+
+	free(event);
+	return ret;
+}
+
 static void snapshot_sig_handler(int sig);
 
 static int __cmd_record(struct record *rec, int argc, const char **argv)
@@ -628,7 +665,9 @@ static int __cmd_record(struct record *rec, int argc, const char **argv)
 	 * Let the child rip
 	 */
 	if (forks)
-		perf_evlist__start_workload(rec->evlist);
+		perf_evlist__start_workload_ex(rec->evlist,
+					       synthesize_workload_comm_event,
+					       rec);
 
 	if (opts->initial_delay) {
 		usleep(opts->initial_delay * 1000);
