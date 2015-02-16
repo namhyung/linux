@@ -104,9 +104,6 @@ struct thread *thread__new(pid_t pid, pid_t tid)
 		INIT_LIST_HEAD(&thread->comm_list);
 		INIT_LIST_HEAD(&thread->mg_list);
 
-		if (unwind__prepare_access(thread) < 0)
-			goto err_thread;
-
 		comm_str = malloc(32);
 		if (!comm_str)
 			goto err_thread;
@@ -152,7 +149,6 @@ void thread__delete(struct thread *thread)
 		list_del(&comm->list);
 		comm__free(comm);
 	}
-	unwind__finish_access(thread);
 
 	free(thread);
 }
@@ -249,9 +245,6 @@ int __thread__set_comm(struct thread *thread, const char *str, u64 timestamp,
 				break;
 		}
 		list_add_tail(&new->list, &curr->list);
-
-		if (exec)
-			unwind__flush_access(thread);
 	}
 
 	if (exec) {

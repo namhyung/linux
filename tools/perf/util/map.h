@@ -75,6 +75,7 @@ struct map_groups {
 	atomic_t	 refcnt;
 	u64		 timestamp;
 	struct list_head list;
+	void		 *priv;
 };
 
 struct map_groups *map_groups__new(struct machine *machine);

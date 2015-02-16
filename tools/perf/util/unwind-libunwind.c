@@ -32,6 +32,7 @@
 #include "symbol.h"
 #include "util.h"
 #include "debug.h"
+#include "map.h"
 
 extern int
 UNW_OBJ(dwarf_search_unwind_table) (unw_addr_space_t as,
@@ -566,7 +567,7 @@ static unw_accessors_t accessors = {
 	.get_proc_name		= get_proc_name,
 };
 
-int unwind__prepare_access(struct thread *thread)
+int unwind__prepare_access(struct map_groups *mg)
 {
 	unw_addr_space_t addr_space;
 
@@ -580,41 +581,38 @@ int unwind__prepare_access(struct thread *thread)
 	}
 
 	unw_set_caching_policy(addr_space, UNW_CACHE_GLOBAL);
-	thread__set_priv(thread, addr_space);
+	mg->priv = addr_space;
 
 	return 0;
 }
 
-void unwind__flush_access(struct thread *thread)
+void unwind__finish_access(struct map_groups *mg)
 {
-	unw_addr_space_t addr_space;
+	unw_addr_space_t addr_space = mg->priv;
 
 	if (callchain_param.record_mode != CALLCHAIN_DWARF)
 		return;
 
-	addr_space = thread__priv(thread);
-	unw_flush_cache(addr_space, 0, 0);
-}
-
-void unwind__finish_access(struct thread *thread)
-{
-	unw_addr_space_t addr_space;
-
-	if (callchain_param.record_mode != CALLCHAIN_DWARF)
+	if (addr_space == NULL)
 		return;
 
-	addr_space = thread__priv(thread);
 	unw_destroy_addr_space(addr_space);
+	mg->priv = NULL;
 }
 
 static int get_entries(struct unwind_info *ui, unwind_entry_cb_t cb,
 		       void *arg, int max_stack)
 {
+	struct map_groups *mg;
 	unw_addr_space_t addr_space;
 	unw_cursor_t c;
 	int ret;
 
-	addr_space = thread__priv(ui->thread);
+	mg = thread__get_map_groups(ui->thread, ui->sample->time);
+	if (mg == NULL)
+		return -1;
+
+	addr_space = mg->priv;
 	if (addr_space == NULL)
 		return -1;
 

@@ -143,6 +143,8 @@ int test__dwarf_unwind(void)
 	struct thread *thread;
 	int err = -1;
 
+	callchain_param.record_mode = CALLCHAIN_DWARF;
+
 	machines__init(&machines);
 
 	machine = machines__find(&machines, HOST_KERNEL_ID);
@@ -150,8 +152,6 @@ int test__dwarf_unwind(void)
 		pr_err("Could not get machine\n");
 		return -1;
 	}
-
-	callchain_param.record_mode = CALLCHAIN_DWARF;
 
 	if (init_live_machine(machine)) {
 		pr_err("Could not init machine\n");

@@ -14,6 +14,7 @@
 #include "util.h"
 #include "debug.h"
 #include "machine.h"
+#include "unwind.h"
 #include <linux/string.h>
 
 static void __maps__insert(struct maps *maps, struct map *map);
@@ -447,6 +448,8 @@ void map_groups__init(struct map_groups *mg, struct machine *machine)
 	atomic_set(&mg->refcnt, 1);
 	mg->timestamp = 0;
 	INIT_LIST_HEAD(&mg->list);
+
+	unwind__prepare_access(mg);
 }
 
 static void __maps__purge(struct maps *maps)
@@ -487,6 +490,8 @@ void map_groups__exit(struct map_groups *mg)
 
 	for (i = 0; i < MAP__NR_TYPES; ++i)
 		maps__exit(&mg->maps[i]);
+
+	unwind__finish_access(mg);
 }
 
 bool map_groups__empty(struct map_groups *mg)
