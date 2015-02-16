@@ -304,8 +304,8 @@ static PyObject *get_field_numeric_entry(struct event_format *event,
 
 
 static PyObject *python_process_callchain(struct perf_sample *sample,
-					 struct perf_evsel *evsel,
-					 struct addr_location *al)
+					  struct perf_evsel *evsel,
+					  struct addr_location *al)
 {
 	PyObject *pylist;
 
