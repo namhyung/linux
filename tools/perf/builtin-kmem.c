@@ -21,6 +21,11 @@
 #include <linux/rbtree.h>
 #include <linux/string.h>
 
+static bool	kmem_slab = true;  /* for backward compatibility */
+static bool	kmem_page;
+
+static long	target_page_size;
+
 struct alloc_stat;
 typedef int (*sort_fn_t)(struct alloc_stat *, struct alloc_stat *);
 
@@ -225,6 +230,139 @@ static int perf_evsel__process_free_event(struct perf_evsel *evsel,
 	return 0;
 }
 
+static u64 total_page_alloc_bytes;
+static u64 total_page_free_bytes;
+static unsigned long nr_page_allocs;
+static unsigned long nr_page_frees;
+static unsigned long nr_page_fails;
+static unsigned long nr_page_nomatch;
+
+#define MAX_MIGRATE_TYPES  6
+#define MAX_PAGE_ORDER     11
+
+static int order_stats[MAX_PAGE_ORDER][MAX_MIGRATE_TYPES];
+
+struct page_stat {
+	struct rb_node 	node;
+	u64 		page;
+	int 		order;
+	unsigned 	gfp_flags;
+	unsigned 	migrate_type;
+	u64		alloc_bytes;
+	u64 		free_bytes;
+	int 		nr_alloc;
+	int 		nr_free;
+};
+
+static struct rb_root page_tree;
+static struct rb_root page_alloc_sorted;
+
+static struct page_stat *search_page_stat(unsigned long page, bool create)
+{
+	struct rb_node **node = &page_tree.rb_node;
+	struct rb_node *parent = NULL;
+	struct page_stat *data;
+
+	while (*node) {
+		s64 cmp;
+
+		parent = *node;
+		data = rb_entry(*node, struct page_stat, node);
+
+		cmp = data->page - page;
+		if (cmp < 0)
+			node = &parent->rb_left;
+		else if (cmp > 0)
+			node = &parent->rb_right;
+		else
+			return data;
+	}
+
+	if (!create)
+		return NULL;
+
+	data = zalloc(sizeof(*data));
+	if (data != NULL) {
+		data->page = page;
+
+		rb_link_node(&data->node, parent, node);
+		rb_insert_color(&data->node, &page_tree);
+	}
+
+	return data;
+}
+
+static int perf_evsel__process_page_alloc_event(struct perf_evsel *evsel,
+						struct perf_sample *sample)
+{
+	u64 page = perf_evsel__intval(evsel, sample, "page");
+	unsigned int order = perf_evsel__intval(evsel, sample, "order");
+	unsigned int gfp_flags = perf_evsel__intval(evsel, sample, "gfp_flags");
+	unsigned int migrate_type = perf_evsel__intval(evsel, sample,
+						       "migratetype");
+	struct page_stat *stat;
+	u64 bytes;
+
+	if (page == 0) {
+		nr_page_fails++;
+		return 0;
+	}
+
+	/*
+	 * XXX: We'd better to use PFN instead of page pointer to deal
+	 * with things like partial freeing.  But there's no way to
+	 * convert a pointer to struct page into a PFN in userspace.
+	 */
+	stat = search_page_stat(page, true);
+	if (stat == NULL)
+		return -1;
+
+	stat->order = order;
+	stat->gfp_flags = gfp_flags;
+	stat->migrate_type = migrate_type;
+
+	if (target_page_size == 0)
+		target_page_size = pevent_get_page_size(evsel->tp_format->pevent);
+	bytes = target_page_size << order;
+
+	stat->nr_alloc++;
+	nr_page_allocs++;
+	stat->alloc_bytes += bytes;
+	total_page_alloc_bytes += bytes;
+
+	order_stats[order][migrate_type]++;
+
+	return 0;
+}
+
+static int perf_evsel__process_page_free_event(struct perf_evsel *evsel,
+						struct perf_sample *sample)
+{
+	u64 page = perf_evsel__intval(evsel, sample, "page");
+	unsigned int order = perf_evsel__intval(evsel, sample, "order");
+	struct page_stat *stat;
+	u64 bytes;
+
+	stat = search_page_stat(page, false);
+	if (stat == NULL) {
+		pr_debug("missing free at page %"PRIx64" (order: %d)\n",
+			 page, order);
+		nr_page_nomatch++;
+		return 0;
+	}
+
+	if (target_page_size == 0)
+		target_page_size = pevent_get_page_size(evsel->tp_format->pevent);
+	bytes = target_page_size << order;
+
+	stat->nr_free++;
+	nr_page_frees++;
+	stat->free_bytes += bytes;
+	total_page_free_bytes += bytes;
+
+	return 0;
+}
+
 typedef int (*tracepoint_handler)(struct perf_evsel *evsel,
 				  struct perf_sample *sample);
 
@@ -269,8 +407,9 @@ static double fragmentation(unsigned long n_req, unsigned long n_alloc)
 		return 100.0 - (100.0 * n_req / n_alloc);
 }
 
-static void __print_result(struct rb_root *root, struct perf_session *session,
-			   int n_lines, int is_caller)
+static void __print_slab_result(struct rb_root *root,
+				struct perf_session *session,
+				int n_lines, int is_caller)
 {
 	struct rb_node *next;
 	struct machine *machine = &session->machines.host;
@@ -322,9 +461,51 @@ static void __print_result(struct rb_root *root, struct perf_session *session,
 	printf("%.102s\n", graph_dotted_line);
 }
 
-static void print_summary(void)
+static const char * const migrate_type_str[] = {
+	"UNMOVABLE",
+	"RECLAIMABLE",
+	"MOVABLE",
+	"RESERVED",
+	"CMA/ISOLATE"
+	"UNKNOWN",
+};
+
+static void __print_page_result(struct rb_root *root,
+				struct perf_session *session __maybe_unused,
+				int n_lines)
 {
-	printf("\nSUMMARY\n=======\n");
+	struct rb_node *next = rb_first(root);
+
+	printf("\n%.80s\n", graph_dotted_line);
+	printf(" Page             | Total_alloc/Per | Hit      | Order | Migrate type | GFP flag\n");
+	printf("%.80s\n", graph_dotted_line);
+
+	while (next && n_lines--) {
+		struct page_stat *data;
+
+		data = rb_entry(next, struct page_stat, node);
+
+		printf(" %016llx | %9llu/%-5lu | %8d | %5d | %12s | %08lx\n",
+		       (unsigned long long)data->page,
+		       (unsigned long long)data->alloc_bytes,
+		       (unsigned long)data->alloc_bytes / data->nr_alloc,
+		       data->nr_alloc, data->order,
+		       migrate_type_str[data->migrate_type],
+		       (unsigned long)data->gfp_flags);
+
+		next = rb_next(next);
+	}
+
+	if (n_lines == -1)
+		printf(" ...              | ...             | ...      | ...   | ...          | ...     \n");
+
+	printf("%.80s\n", graph_dotted_line);
+}
+
+static void print_slab_summary(void)
+{
+	printf("\nSUMMARY (SLAB allocator)");
+	printf("\n========================\n");
 	printf("Total bytes requested: %lu\n", total_requested);
 	printf("Total bytes allocated: %lu\n", total_allocated);
 	printf("Total bytes wasted on internal fragmentation: %lu\n",
@@ -334,13 +515,53 @@ static void print_summary(void)
 	printf("Cross CPU allocations: %lu/%lu\n", nr_cross_allocs, nr_allocs);
 }
 
-static void print_result(struct perf_session *session)
+static void print_page_summary(void)
+{
+	int o;
+
+	printf("\nSUMMARY (page allocator)");
+	printf("\n========================\n");
+	printf("Total alloc requested: %lu\n", nr_page_allocs);
+	printf("Total alloc failure  : %lu\n", nr_page_fails);
+	printf("Total bytes allocated: %lu\n", total_page_alloc_bytes);
+	printf("Total free  requested: %lu\n", nr_page_frees);
+	printf("Total free  unmatched: %lu\n", nr_page_nomatch);
+	printf("Total bytes freed    : %lu\n", total_page_free_bytes);
+
+	printf("\n");
+	printf("%5s  %12s  %12s  %12s\n",
+	       "Order", "UNMOVABLE", "RECLAIMABLE", "MOVABLE");
+	printf("%.5s  %.12s  %.12s  %.12s\n", graph_dotted_line,
+	       graph_dotted_line, graph_dotted_line, graph_dotted_line);
+
+	for (o = 0; o < MAX_PAGE_ORDER; o++) {
+		printf("%5d  %12d  %12d  %12d\n", o,
+		       order_stats[o][0], order_stats[o][1], order_stats[o][2]);
+	}
+}
+
+static void print_slab_result(struct perf_session *session)
 {
 	if (caller_flag)
-		__print_result(&root_caller_sorted, session, caller_lines, 1);
+		__print_slab_result(&root_caller_sorted, session, caller_lines, 1);
 	if (alloc_flag)
-		__print_result(&root_alloc_sorted, session, alloc_lines, 0);
-	print_summary();
+		__print_slab_result(&root_alloc_sorted, session, alloc_lines, 0);
+	print_slab_summary();
+}
+
+static void print_page_result(struct perf_session *session)
+{
+	if (alloc_flag)
+		__print_page_result(&page_alloc_sorted, session, alloc_lines);
+	print_page_summary();
+}
+
+static void print_result(struct perf_session *session)
+{
+	if (kmem_slab)
+		print_slab_result(session);
+	if (kmem_page)
+		print_page_result(session);
 }
 
 struct sort_dimension {
@@ -352,8 +573,8 @@ struct sort_dimension {
 static LIST_HEAD(caller_sort);
 static LIST_HEAD(alloc_sort);
 
-static void sort_insert(struct rb_root *root, struct alloc_stat *data,
-			struct list_head *sort_list)
+static void sort_slab_insert(struct rb_root *root, struct alloc_stat *data,
+			     struct list_head *sort_list)
 {
 	struct rb_node **new = &(root->rb_node);
 	struct rb_node *parent = NULL;
@@ -382,8 +603,8 @@ static void sort_insert(struct rb_root *root, struct alloc_stat *data,
 	rb_insert_color(&data->node, root);
 }
 
-static void __sort_result(struct rb_root *root, struct rb_root *root_sorted,
-			  struct list_head *sort_list)
+static void __sort_slab_result(struct rb_root *root, struct rb_root *root_sorted,
+			       struct list_head *sort_list)
 {
 	struct rb_node *node;
 	struct alloc_stat *data;
@@ -395,26 +616,78 @@ static void __sort_result(struct rb_root *root, struct rb_root *root_sorted,
 
 		rb_erase(node, root);
 		data = rb_entry(node, struct alloc_stat, node);
-		sort_insert(root_sorted, data, sort_list);
+		sort_slab_insert(root_sorted, data, sort_list);
+	}
+}
+
+static void sort_page_insert(struct rb_root *root, struct page_stat *data)
+{
+	struct rb_node **new = &root->rb_node;
+	struct rb_node *parent = NULL;
+
+	while (*new) {
+		struct page_stat *this;
+		int cmp = 0;
+
+		this = rb_entry(*new, struct page_stat, node);
+		parent = *new;
+
+		/* TODO: support more sort key */
+		cmp = data->alloc_bytes - this->alloc_bytes;
+
+		if (cmp > 0)
+			new = &parent->rb_left;
+		else
+			new = &parent->rb_right;
+	}
+
+	rb_link_node(&data->node, parent, new);
+	rb_insert_color(&data->node, root);
+}
+
+static void __sort_page_result(struct rb_root *root, struct rb_root *root_sorted)
+{
+	struct rb_node *node;
+	struct page_stat *data;
+
+	for (;;) {
+		node = rb_first(root);
+		if (!node)
+			break;
+
+		rb_erase(node, root);
+		data = rb_entry(node, struct page_stat, node);
+		sort_page_insert(root_sorted, data);
 	}
 }
 
 static void sort_result(void)
 {
-	__sort_result(&root_alloc_stat, &root_alloc_sorted, &alloc_sort);
-	__sort_result(&root_caller_stat, &root_caller_sorted, &caller_sort);
+	if (kmem_slab) {
+		__sort_slab_result(&root_alloc_stat, &root_alloc_sorted,
+				   &alloc_sort);
+		__sort_slab_result(&root_caller_stat, &root_caller_sorted,
+				   &caller_sort);
+	}
+	if (kmem_page) {
+		__sort_page_result(&page_tree, &page_alloc_sorted);
+	}
 }
 
 static int __cmd_kmem(struct perf_session *session)
 {
 	int err = -EINVAL;
 	const struct perf_evsel_str_handler kmem_tracepoints[] = {
+		/* slab allocator */
 		{ "kmem:kmalloc",		perf_evsel__process_alloc_event, },
     		{ "kmem:kmem_cache_alloc",	perf_evsel__process_alloc_event, },
 		{ "kmem:kmalloc_node",		perf_evsel__process_alloc_node_event, },
     		{ "kmem:kmem_cache_alloc_node", perf_evsel__process_alloc_node_event, },
 		{ "kmem:kfree",			perf_evsel__process_free_event, },
     		{ "kmem:kmem_cache_free",	perf_evsel__process_free_event, },
+		/* page allocator */
+		{ "kmem:mm_page_alloc",		perf_evsel__process_page_alloc_event, },
+		{ "kmem:mm_page_free",		perf_evsel__process_page_free_event, },
 	};
 
 	if (!perf_session__has_traces(session, "kmem record"))
@@ -632,6 +905,8 @@ static int __cmd_record(int argc, const char **argv)
 {
 	const char * const record_args[] = {
 	"record", "-a", "-R", "-c", "1",
+	};
+	const char * const slab_events[] = {
 	"-e", "kmem:kmalloc",
 	"-e", "kmem:kmalloc_node",
 	"-e", "kmem:kfree",
@@ -639,10 +914,19 @@ static int __cmd_record(int argc, const char **argv)
 	"-e", "kmem:kmem_cache_alloc_node",
 	"-e", "kmem:kmem_cache_free",
 	};
+	const char * const page_events[] = {
+	"-e", "kmem:mm_page_alloc",
+	"-e", "kmem:mm_page_free",
+	};
 	unsigned int rec_argc, i, j;
 	const char **rec_argv;
 
 	rec_argc = ARRAY_SIZE(record_args) + argc - 1;
+	if (kmem_slab)
+		rec_argc += ARRAY_SIZE(slab_events);
+	if (kmem_page)
+		rec_argc += ARRAY_SIZE(page_events);
+
 	rec_argv = calloc(rec_argc + 1, sizeof(char *));
 
 	if (rec_argv == NULL)
@@ -650,6 +934,15 @@ static int __cmd_record(int argc, const char **argv)
 
 	for (i = 0; i < ARRAY_SIZE(record_args); i++)
 		rec_argv[i] = strdup(record_args[i]);
+
+	if (kmem_slab) {
+		for (j = 0; j < ARRAY_SIZE(slab_events); j++, i++)
+			rec_argv[i] = strdup(slab_events[j]);
+	}
+	if (kmem_page) {
+		for (j = 0; j < ARRAY_SIZE(page_events); j++, i++)
+			rec_argv[i] = strdup(page_events[j]);
+	}
 
 	for (j = 1; j < (unsigned int)argc; j++, i++)
 		rec_argv[i] = argv[j];
@@ -673,6 +966,8 @@ int cmd_kmem(int argc, const char **argv, const char *prefix __maybe_unused)
 		     parse_sort_opt),
 	OPT_CALLBACK('l', "line", NULL, "num", "show n lines", parse_line_opt),
 	OPT_BOOLEAN(0, "raw-ip", &raw_ip, "show raw ip instead of symbol"),
+	OPT_BOOLEAN(0, "slab", &kmem_slab, "Analyze slab allocator"),
+	OPT_BOOLEAN(0, "page", &kmem_page, "Analyze page allocator"),
 	OPT_END()
 	};
 	const char *const kmem_subcommands[] = { "record", "stat", NULL };
@@ -692,6 +987,11 @@ int cmd_kmem(int argc, const char **argv, const char *prefix __maybe_unused)
 
 	if (!argc)
 		usage_with_options(kmem_usage, kmem_options);
+
+	if (kmem_slab == false && kmem_page == false) {
+		pr_err("At least one of --slab or --page should be given\n");
+		usage_with_options(kmem_usage, kmem_options);
+	}
 
 	if (!strncmp(argv[0], "rec", 3)) {
 		symbol__init(NULL);
