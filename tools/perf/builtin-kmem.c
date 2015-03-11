@@ -10,6 +10,7 @@
 #include "util/header.h"
 #include "util/session.h"
 #include "util/tool.h"
+#include "util/callchain.h"
 
 #include "util/parse-options.h"
 #include "util/trace-event.h"
@@ -20,6 +21,7 @@
 
 #include <linux/rbtree.h>
 #include <linux/string.h>
+#include <regex.h>
 
 static bool	kmem_slab = true;  /* for backward compatibility */
 static bool	kmem_page;
@@ -237,6 +239,8 @@ static unsigned long nr_page_frees;
 static unsigned long nr_page_fails;
 static unsigned long nr_page_nomatch;
 
+static struct perf_session *kmem_session;
+
 #define MAX_MIGRATE_TYPES  6
 #define MAX_PAGE_ORDER     11
 
@@ -245,6 +249,7 @@ static int order_stats[MAX_PAGE_ORDER][MAX_MIGRATE_TYPES];
 struct page_stat {
 	struct rb_node 	node;
 	u64 		page;
+	u64 		callsite;
 	int 		order;
 	unsigned 	gfp_flags;
 	unsigned 	migrate_type;
@@ -254,12 +259,142 @@ struct page_stat {
 	int 		nr_free;
 };
 
-static struct rb_root page_tree;
+static struct rb_root page_alloc_tree;
 static struct rb_root page_alloc_sorted;
+static struct rb_root page_caller_tree;
+static struct rb_root page_caller_sorted;
 
-static struct page_stat *search_page_stat(unsigned long page, bool create)
+struct alloc_func {
+	u64 start;
+	u64 end;
+	char *name;
+};
+
+static int nr_alloc_funcs;
+static struct alloc_func *alloc_func_list;
+
+static int funcmp(const void *a, const void *b)
 {
-	struct rb_node **node = &page_tree.rb_node;
+	const struct alloc_func *fa = a;
+	const struct alloc_func *fb = b;
+
+	if (fa->start > fb->start)
+		return 1;
+	else
+		return -1;
+}
+
+static int callcmp(const void *a, const void *b)
+{
+	const struct alloc_func *fa = a;
+	const struct alloc_func *fb = b;
+
+	if (fb->start <= fa->start && fa->end < fb->end)
+		return 0;
+
+	if (fa->start > fb->start)
+		return 1;
+	else
+		return -1;
+}
+
+static int build_alloc_func_list(void)
+{
+	int ret;
+	struct map *kernel_map;
+	struct symbol *sym;
+	struct rb_node *node;
+	struct alloc_func *func;
+	struct machine *machine = &kmem_session->machines.host;
+
+	regex_t alloc_func_regex;
+	const char pattern[] = "^_?_?(alloc|get_free|get_zeroed)_pages?";
+
+	ret = regcomp(&alloc_func_regex, pattern, REG_EXTENDED);
+	if (ret) {
+		char err[BUFSIZ];
+
+		regerror(ret, &alloc_func_regex, err, sizeof(err));
+		pr_err("Invalid regex: %s\n%s", pattern, err);
+		return -EINVAL;
+	}
+
+	kernel_map = machine->vmlinux_maps[MAP__FUNCTION];
+	map__load(kernel_map, NULL);
+
+	map__for_each_symbol(kernel_map, sym, node) {
+		if (regexec(&alloc_func_regex, sym->name, 0, NULL, 0))
+			continue;
+
+		func = realloc(alloc_func_list,
+			       (nr_alloc_funcs + 1) * sizeof(*func));
+		if (func == NULL)
+			return -ENOMEM;
+
+		pr_debug2("alloc func: %s\n", sym->name);
+		func[nr_alloc_funcs].start = sym->start;
+		func[nr_alloc_funcs].end   = sym->end;
+		func[nr_alloc_funcs].name  = sym->name;
+
+		alloc_func_list = func;
+		nr_alloc_funcs++;
+	}
+
+	qsort(alloc_func_list, nr_alloc_funcs, sizeof(*func), funcmp);
+
+	regfree(&alloc_func_regex);
+	return 0;
+}
+
+/*
+ * Find first non-memory allocation function from callchain.
+ * The allocation functions are in the 'alloc_func_list'.
+ */
+static u64 find_callsite(struct perf_evsel *evsel, struct perf_sample *sample)
+{
+	struct addr_location al;
+	struct machine *machine = &kmem_session->machines.host;
+	struct callchain_cursor_node *node;
+
+	if (alloc_func_list == NULL)
+		build_alloc_func_list();
+
+	al.thread = machine__findnew_thread(machine, sample->pid, sample->tid);
+	sample__resolve_callchain(sample, NULL, evsel, &al, 16);
+
+	callchain_cursor_commit(&callchain_cursor);
+	while (true) {
+		struct alloc_func key, *caller;
+		u64 addr;
+
+		node = callchain_cursor_current(&callchain_cursor);
+		if (node == NULL)
+			break;
+
+		key.start = key.end = node->ip;
+		caller = bsearch(&key, alloc_func_list, nr_alloc_funcs,
+				 sizeof(key), callcmp);
+		if (!caller) {
+			/* found */
+			if (node->map)
+				addr = map__unmap_ip(node->map, node->ip);
+			else
+				addr = node->ip;
+
+			return addr;
+		} else
+			pr_debug3("skipping alloc function: %s\n", caller->name);
+
+		callchain_cursor_advance(&callchain_cursor);
+	}
+
+	pr_debug2("unknown callsite: %"PRIx64, sample->ip);
+	return sample->ip;
+}
+
+static struct page_stat *search_page_alloc_stat(u64 page, bool create)
+{
+	struct rb_node **node = &page_alloc_tree.rb_node;
 	struct rb_node *parent = NULL;
 	struct page_stat *data;
 
@@ -286,7 +421,42 @@ static struct page_stat *search_page_stat(unsigned long page, bool create)
 		data->page = page;
 
 		rb_link_node(&data->node, parent, node);
-		rb_insert_color(&data->node, &page_tree);
+		rb_insert_color(&data->node, &page_alloc_tree);
+	}
+
+	return data;
+}
+
+static struct page_stat *search_page_caller_stat(u64 callsite, bool create)
+{
+	struct rb_node **node = &page_caller_tree.rb_node;
+	struct rb_node *parent = NULL;
+	struct page_stat *data;
+
+	while (*node) {
+		s64 cmp;
+
+		parent = *node;
+		data = rb_entry(*node, struct page_stat, node);
+
+		cmp = data->callsite - callsite;
+		if (cmp < 0)
+			node = &parent->rb_left;
+		else if (cmp > 0)
+			node = &parent->rb_right;
+		else
+			return data;
+	}
+
+	if (!create)
+		return NULL;
+
+	data = zalloc(sizeof(*data));
+	if (data != NULL) {
+		data->callsite = callsite;
+
+		rb_link_node(&data->node, parent, node);
+		rb_insert_color(&data->node, &page_caller_tree);
 	}
 
 	return data;
@@ -301,6 +471,7 @@ static int perf_evsel__process_page_alloc_event(struct perf_evsel *evsel,
 	unsigned int migrate_type = perf_evsel__intval(evsel, sample,
 						       "migratetype");
 	struct page_stat *stat;
+	u64 callsite;
 	u64 bytes;
 
 	if (page == 0) {
@@ -308,26 +479,43 @@ static int perf_evsel__process_page_alloc_event(struct perf_evsel *evsel,
 		return 0;
 	}
 
-	/*
-	 * XXX: We'd better to use PFN instead of page pointer to deal
-	 * with things like partial freeing.  But there's no way to
-	 * convert a pointer to struct page into a PFN in userspace.
-	 */
-	stat = search_page_stat(page, true);
-	if (stat == NULL)
-		return -1;
-
-	stat->order = order;
-	stat->gfp_flags = gfp_flags;
-	stat->migrate_type = migrate_type;
+	callsite = find_callsite(evsel, sample);
 
 	if (target_page_size == 0)
 		target_page_size = pevent_get_page_size(evsel->tp_format->pevent);
 	bytes = target_page_size << order;
 
+	/*
+	 * XXX: We'd better to use PFN instead of page pointer to deal
+	 * with things like partial freeing.  But there's no way to
+	 * convert a pointer to struct page into a PFN in userspace.
+	 */
+	stat = search_page_alloc_stat(page, true);
+	if (stat == NULL) {
+		pr_err("cannot create page alloc stat\n");
+		return -1;
+	}
+
+	stat->order = order;
+	stat->gfp_flags = gfp_flags;
+	stat->migrate_type = migrate_type;
+	stat->callsite = callsite;
 	stat->nr_alloc++;
-	nr_page_allocs++;
 	stat->alloc_bytes += bytes;
+
+	stat = search_page_caller_stat(callsite, true);
+	if (stat == NULL) {
+		pr_err("cannot create page caller stat\n");
+		return -1;
+	}
+
+	stat->order = order;
+	stat->gfp_flags = gfp_flags;
+	stat->migrate_type = migrate_type;
+	stat->nr_alloc++;
+	stat->alloc_bytes += bytes;
+
+	nr_page_allocs++;
 	total_page_alloc_bytes += bytes;
 
 	order_stats[order][migrate_type]++;
@@ -343,7 +531,7 @@ static int perf_evsel__process_page_free_event(struct perf_evsel *evsel,
 	struct page_stat *stat;
 	u64 bytes;
 
-	stat = search_page_stat(page, false);
+	stat = search_page_alloc_stat(page, false);
 	if (stat == NULL) {
 		pr_debug("missing free at page %"PRIx64" (order: %d)\n",
 			 page, order);
@@ -356,8 +544,15 @@ static int perf_evsel__process_page_free_event(struct perf_evsel *evsel,
 	bytes = target_page_size << order;
 
 	stat->nr_free++;
-	nr_page_frees++;
 	stat->free_bytes += bytes;
+
+	stat = search_page_caller_stat(stat->callsite, false);
+	if (stat != NULL) {
+		stat->nr_free++;
+		stat->free_bytes += bytes;
+	}
+
+	nr_page_frees++;
 	total_page_free_bytes += bytes;
 
 	return 0;
@@ -470,36 +665,85 @@ static const char * const migrate_type_str[] = {
 	"UNKNOWN",
 };
 
-static void __print_page_result(struct rb_root *root,
-				struct perf_session *session __maybe_unused,
-				int n_lines)
+static void __print_page_alloc_result(struct perf_session *session, int n_lines)
 {
-	struct rb_node *next = rb_first(root);
+	struct rb_node *next = rb_first(&page_alloc_sorted);
+	struct machine *machine = &session->machines.host;
 
-	printf("\n%.80s\n", graph_dotted_line);
-	printf(" Page             | Total_alloc/Per | Hit      | Order | Migrate type | GFP flag\n");
-	printf("%.80s\n", graph_dotted_line);
+	printf("\n%.92s\n", graph_dotted_line);
+	printf(" Page             | Total_alloc/Per | Hit      | Order | Migrate type | GFP flag | Callsite\n");
+	printf("%.92s\n", graph_dotted_line);
 
 	while (next && n_lines--) {
 		struct page_stat *data;
+		struct symbol *sym;
+		struct map *map;
+		char buf[32];
+		char *caller = buf;
 
 		data = rb_entry(next, struct page_stat, node);
+		sym = machine__find_kernel_function(machine, data->callsite,
+						    &map, NULL);
+		if (sym && sym->name)
+			caller = sym->name;
+		else
+			scnprintf(buf, sizeof(buf), "%"PRIx64, data->callsite);
 
-		printf(" %016llx | %9llu/%-5lu | %8d | %5d | %12s | %08lx\n",
+		printf(" %016llx | %9llu/%-5lu | %8d | %5d | %12s | %08lx | %s\n",
 		       (unsigned long long)data->page,
 		       (unsigned long long)data->alloc_bytes,
 		       (unsigned long)data->alloc_bytes / data->nr_alloc,
 		       data->nr_alloc, data->order,
 		       migrate_type_str[data->migrate_type],
-		       (unsigned long)data->gfp_flags);
+		       (unsigned long)data->gfp_flags, caller);
 
 		next = rb_next(next);
 	}
 
 	if (n_lines == -1)
-		printf(" ...              | ...             | ...      | ...   | ...          | ...     \n");
+		printf(" ...              | ...             | ...      | ...   | ...          | ...      | ...\n");
 
-	printf("%.80s\n", graph_dotted_line);
+	printf("%.92s\n", graph_dotted_line);
+}
+
+static void __print_page_caller_result(struct perf_session *session, int n_lines)
+{
+	struct rb_node *next = rb_first(&page_caller_sorted);
+	struct machine *machine = &session->machines.host;
+
+	printf("\n%.92s\n", graph_dotted_line);
+	printf(" Total_alloc/Per | Hit      | Order | Migrate type | GFP flag | Callsite\n");
+	printf("%.92s\n", graph_dotted_line);
+
+	while (next && n_lines--) {
+		struct page_stat *data;
+		struct symbol *sym;
+		struct map *map;
+		char buf[32];
+		char *caller = buf;
+
+		data = rb_entry(next, struct page_stat, node);
+		sym = machine__find_kernel_function(machine, data->callsite,
+						    &map, NULL);
+		if (sym && sym->name)
+			caller = sym->name;
+		else
+			scnprintf(buf, sizeof(buf), "%"PRIx64, data->callsite);
+
+		printf(" %9llu/%-5lu | %8d | %5d | %12s | %08lx | %s\n",
+		       (unsigned long long)data->alloc_bytes,
+		       (unsigned long)data->alloc_bytes / data->nr_alloc,
+		       data->nr_alloc, data->order,
+		       migrate_type_str[data->migrate_type],
+		       (unsigned long)data->gfp_flags, caller);
+
+		next = rb_next(next);
+	}
+
+	if (n_lines == -1)
+		printf(" ...             | ...      | ...   | ...          | ...      | ...\n");
+
+	printf("%.92s\n", graph_dotted_line);
 }
 
 static void print_slab_summary(void)
@@ -551,8 +795,10 @@ static void print_slab_result(struct perf_session *session)
 
 static void print_page_result(struct perf_session *session)
 {
+	if (caller_flag)
+		__print_page_caller_result(session, caller_lines);
 	if (alloc_flag)
-		__print_page_result(&page_alloc_sorted, session, alloc_lines);
+		__print_page_alloc_result(session, alloc_lines);
 	print_page_summary();
 }
 
@@ -670,7 +916,8 @@ static void sort_result(void)
 				   &caller_sort);
 	}
 	if (kmem_page) {
-		__sort_page_result(&page_tree, &page_alloc_sorted);
+		__sort_page_result(&page_alloc_tree, &page_alloc_sorted);
+		__sort_page_result(&page_caller_tree, &page_caller_sorted);
 	}
 }
 
@@ -700,8 +947,10 @@ static int __cmd_kmem(struct perf_session *session)
 
 	setup_pager();
 	err = perf_session__process_events(session, &perf_kmem);
-	if (err != 0)
+	if (err != 0) {
+		pr_err("error during process events: %d\n", err);
 		goto out;
+	}
 	sort_result();
 	print_result(session);
 out:
@@ -925,7 +1174,7 @@ static int __cmd_record(int argc, const char **argv)
 	if (kmem_slab)
 		rec_argc += ARRAY_SIZE(slab_events);
 	if (kmem_page)
-		rec_argc += ARRAY_SIZE(page_events);
+		rec_argc += ARRAY_SIZE(page_events) + 1; /* for -g */
 
 	rec_argv = calloc(rec_argc + 1, sizeof(char *));
 
@@ -940,6 +1189,8 @@ static int __cmd_record(int argc, const char **argv)
 			rec_argv[i] = strdup(slab_events[j]);
 	}
 	if (kmem_page) {
+		rec_argv[i++] = strdup("-g");
+
 		for (j = 0; j < ARRAY_SIZE(page_events); j++, i++)
 			rec_argv[i] = strdup(page_events[j]);
 	}
@@ -998,9 +1249,12 @@ int cmd_kmem(int argc, const char **argv, const char *prefix __maybe_unused)
 		return __cmd_record(argc, argv);
 	}
 
-	session = perf_session__new(&file, false, &perf_kmem);
+	kmem_session = session = perf_session__new(&file, false, &perf_kmem);
 	if (session == NULL)
 		return -1;
+
+	if (kmem_page)
+		symbol_conf.use_callchain = true;
 
 	symbol__init(&session->header.env);
 
