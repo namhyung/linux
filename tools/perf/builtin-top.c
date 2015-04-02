@@ -828,13 +828,13 @@ static void perf_top__mmap_read_idx(struct perf_top *top, int idx)
 			++top->us_samples;
 			if (top->hide_user_symbols)
 				goto next_event;
-			machine = &session->machines.host;
+			machine = &session->machines->host;
 			break;
 		case PERF_RECORD_MISC_KERNEL:
 			++top->kernel_samples;
 			if (top->hide_kernel_symbols)
 				goto next_event;
-			machine = &session->machines.host;
+			machine = &session->machines->host;
 			break;
 		case PERF_RECORD_MISC_GUEST_KERNEL:
 			++top->guest_kernel_samples;
@@ -942,11 +942,11 @@ static int __cmd_top(struct perf_top *top)
 	if (tool.machines == NULL)
 		return -1;
 
+	machines__set_symbol_filter(tool.machines, symbol_filter);
+
 	top->session = perf_session__new(NULL, false, &tool);
 	if (top->session == NULL)
 		goto out_delete_machine;
-
-	machines__set_symbol_filter(&top->session->machines, symbol_filter);
 
 	if (!objdump_path) {
 		ret = perf_session_env__lookup_objdump(&top->session->header.env);
@@ -958,7 +958,7 @@ static int __cmd_top(struct perf_top *top)
 	if (ret)
 		goto out_delete;
 
-	machine__synthesize_threads(&top->session->machines.host, &opts->target,
+	machine__synthesize_threads(&top->session->machines->host, &opts->target,
 				    top->evlist->threads, false);
 	ret = perf_top__start_counters(top);
 	if (ret)

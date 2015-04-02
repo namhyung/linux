@@ -771,7 +771,7 @@ static int __cmd_diff(void)
  out_delete:
 	data__for_each_file(i, d) {
 		if (d->session) {
-			struct machines *machines = &d->session->machines;
+			struct machines *machines = d->session->machines;
 
 			perf_session__delete(d->session);
 			if (machines)

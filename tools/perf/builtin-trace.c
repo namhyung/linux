@@ -2424,7 +2424,7 @@ static int trace__replay(struct trace *trace)
 	if (symbol__init(&session->header.env) < 0)
 		goto out;
 
-	trace->host = &session->machines.host;
+	trace->host = &session->machines->host;
 
 	err = perf_session__set_tracepoints_handlers(session, handlers);
 	if (err)

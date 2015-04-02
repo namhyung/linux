@@ -221,12 +221,12 @@ static int machine__write_buildid_table(struct machine *machine, int fd)
 int perf_session__write_buildid_table(struct perf_session *session, int fd)
 {
 	struct rb_node *nd;
-	int err = machine__write_buildid_table(&session->machines.host, fd);
+	int err = machine__write_buildid_table(&session->machines->host, fd);
 
 	if (err)
 		return err;
 
-	for (nd = rb_first(&session->machines.guests); nd; nd = rb_next(nd)) {
+	for (nd = rb_first(&session->machines->guests); nd; nd = rb_next(nd)) {
 		struct machine *pos = rb_entry(nd, struct machine, rb_node);
 		err = machine__write_buildid_table(pos, fd);
 		if (err)
@@ -261,11 +261,11 @@ int dsos__hit_all(struct perf_session *session)
 	struct rb_node *nd;
 	int err;
 
-	err = machine__hit_all_dsos(&session->machines.host);
+	err = machine__hit_all_dsos(&session->machines->host);
 	if (err)
 		return err;
 
-	for (nd = rb_first(&session->machines.guests); nd; nd = rb_next(nd)) {
+	for (nd = rb_first(&session->machines->guests); nd; nd = rb_next(nd)) {
 		struct machine *pos = rb_entry(nd, struct machine, rb_node);
 
 		err = machine__hit_all_dsos(pos);
@@ -509,9 +509,9 @@ int perf_session__cache_build_ids(struct perf_session *session)
 	if (mkdir(buildid_dir, 0755) != 0 && errno != EEXIST)
 		return -1;
 
-	ret = machine__cache_build_ids(&session->machines.host);
+	ret = machine__cache_build_ids(&session->machines->host);
 
-	for (nd = rb_first(&session->machines.guests); nd; nd = rb_next(nd)) {
+	for (nd = rb_first(&session->machines->guests); nd; nd = rb_next(nd)) {
 		struct machine *pos = rb_entry(nd, struct machine, rb_node);
 		ret |= machine__cache_build_ids(pos);
 	}
@@ -530,9 +530,9 @@ static bool machine__read_build_ids(struct machine *machine, bool with_hits)
 bool perf_session__read_build_ids(struct perf_session *session, bool with_hits)
 {
 	struct rb_node *nd;
-	bool ret = machine__read_build_ids(&session->machines.host, with_hits);
+	bool ret = machine__read_build_ids(&session->machines->host, with_hits);
 
-	for (nd = rb_first(&session->machines.guests); nd; nd = rb_next(nd)) {
+	for (nd = rb_first(&session->machines->guests); nd; nd = rb_next(nd)) {
 		struct machine *pos = rb_entry(nd, struct machine, rb_node);
 		ret |= machine__read_build_ids(pos, with_hits);
 	}

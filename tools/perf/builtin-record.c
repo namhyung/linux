@@ -608,7 +608,7 @@ static int synthesize_workload_comm_event(struct perf_evlist *evlist, void *arg)
 {
 	union perf_event *event;
 	struct record *rec = arg;
-	struct machine *machine = &rec->session->machines.host;
+	struct machine *machine = &rec->session->machines->host;
 	int pid = evlist->workload.pid;
 	const char *comm_str = program_invocation_short_name;
 	size_t comm_size, total_size;
@@ -725,7 +725,7 @@ static int __cmd_record(struct record *rec, int argc, const char **argv)
 		goto out_child;
 	}
 
-	machine = &session->machines.host;
+	machine = &session->machines->host;
 
 	if (file->is_pipe) {
 		err = perf_event__synthesize_attrs(tool, session,
@@ -776,7 +776,7 @@ static int __cmd_record(struct record *rec, int argc, const char **argv)
 		       "Check /proc/modules permission or run as root.\n");
 
 	if (perf_guest) {
-		machines__process_guests(&session->machines,
+		machines__process_guests(session->machines,
 					 perf_event__synthesize_guest_os, tool);
 	}
 

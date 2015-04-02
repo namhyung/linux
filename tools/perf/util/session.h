@@ -20,7 +20,7 @@ struct itrace_synth_opts;
 
 struct perf_session {
 	struct perf_header	header;
-	struct machines		machines;
+	struct machines		*machines;
 	struct perf_evlist	*evlist;
 	struct auxtrace		*auxtrace;
 	struct itrace_synth_opts *itrace_synth_opts;
@@ -79,13 +79,13 @@ void perf_session__set_id_hdr_size(struct perf_session *session);
 static inline
 struct machine *perf_session__find_machine(struct perf_session *session, pid_t pid)
 {
-	return machines__find(&session->machines, pid);
+	return machines__find(session->machines, pid);
 }
 
 static inline
 struct machine *perf_session__findnew_machine(struct perf_session *session, pid_t pid)
 {
-	return machines__findnew(&session->machines, pid);
+	return machines__findnew(session->machines, pid);
 }
 
 struct thread *perf_session__findnew(struct perf_session *session, pid_t pid);

@@ -353,7 +353,7 @@ static int perf_evlist__tty_browse_hists(struct perf_evlist *evlist,
 
 static void report__warn_kptr_restrict(const struct report *rep)
 {
-	struct map *kernel_map = rep->session->machines.host.vmlinux_maps[MAP__FUNCTION];
+	struct map *kernel_map = rep->session->machines->host.vmlinux_maps[MAP__FUNCTION];
 	struct kmap *kernel_kmap = kernel_map ? map__kmap(kernel_map) : NULL;
 
 	if (kernel_map == NULL ||
@@ -849,7 +849,7 @@ repeat:
 	 */
 	if (ui__has_annotation()) {
 		symbol_conf.priv_size = sizeof(struct annotation);
-		machines__set_symbol_filter(&session->machines,
+		machines__set_symbol_filter(session->machines,
 					    symbol__annotate_init);
 		/*
  		 * For searching by name on the "Browse map details".

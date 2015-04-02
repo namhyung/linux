@@ -316,7 +316,7 @@ static int build_alloc_func_list(void)
 	struct symbol *sym;
 	struct rb_node *node;
 	struct alloc_func *func;
-	struct machine *machine = &kmem_session->machines.host;
+	struct machine *machine = &kmem_session->machines->host;
 	regex_t alloc_func_regex;
 	const char pattern[] = "^_?_?(alloc|get_free|get_zeroed)_pages?";
 
@@ -366,7 +366,7 @@ static int build_alloc_func_list(void)
 static u64 find_callsite(struct perf_evsel *evsel, struct perf_sample *sample)
 {
 	struct addr_location al;
-	struct machine *machine = &kmem_session->machines.host;
+	struct machine *machine = &kmem_session->machines->host;
 	struct callchain_cursor_node *node;
 
 	if (alloc_func_list == NULL) {
@@ -949,7 +949,7 @@ static void __print_slab_result(struct rb_root *root,
 				int n_lines, int is_caller)
 {
 	struct rb_node *next;
-	struct machine *machine = &session->machines.host;
+	struct machine *machine = &session->machines->host;
 
 	printf("%.105s\n", graph_dotted_line);
 	printf(" %-34s |",  is_caller ? "Callsite": "Alloc Ptr");
@@ -1010,7 +1010,7 @@ static const char * const migrate_type_str[] = {
 static void __print_page_alloc_result(struct perf_session *session, int n_lines)
 {
 	struct rb_node *next = rb_first(&page_alloc_sorted);
-	struct machine *machine = &session->machines.host;
+	struct machine *machine = &session->machines->host;
 	const char *format;
 	int gfp_len = max(strlen("GFP flags"), max_gfp_len);
 
@@ -1060,7 +1060,7 @@ static void __print_page_alloc_result(struct perf_session *session, int n_lines)
 static void __print_page_caller_result(struct perf_session *session, int n_lines)
 {
 	struct rb_node *next = rb_first(&page_caller_sorted);
-	struct machine *machine = &session->machines.host;
+	struct machine *machine = &session->machines->host;
 	int gfp_len = max(strlen("GFP flags"), max_gfp_len);
 
 	printf("\n%.105s\n", graph_dotted_line);
