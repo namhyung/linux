@@ -44,6 +44,7 @@ struct map {
 	u32			maj, min; /* only valid for MMAP2 record */
 	u64			ino;      /* only valid for MMAP2 record */
 	u64			ino_generation;/* only valid for MMAP2 record */
+	u64			timestamp;
 
 	/* ip -> dso rip */
 	u64			(*map_ip)(struct map *, u64);
@@ -145,12 +146,14 @@ typedef int (*symbol_filter_t)(struct map *map, struct symbol *sym);
 
 int arch__compare_symbol_names(const char *namea, const char *nameb);
 void map__init(struct map *map, enum map_type type,
-	       u64 start, u64 end, u64 pgoff, struct dso *dso);
+	       u64 start, u64 end, u64 pgoff, struct dso *dso, u64 timestamp);
 struct map *map__new(struct machine *machine, u64 start, u64 len,
 		     u64 pgoff, u32 pid, u32 d_maj, u32 d_min, u64 ino,
 		     u64 ino_gen, u32 prot, u32 flags,
-		     char *filename, enum map_type type, struct thread *thread);
-struct map *map__new2(u64 start, struct dso *dso, enum map_type type);
+		     char *filename, enum map_type type, struct thread *thread,
+		     u64 timestamp);
+struct map *map__new2(u64 start, struct dso *dso, enum map_type type,
+		      u64 timestamp);
 void map__delete(struct map *map);
 struct map *map__clone(struct map *map);
 

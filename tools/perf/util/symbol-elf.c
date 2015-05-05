@@ -1014,7 +1014,7 @@ int dso__load_sym(struct dso *dso, struct map *map,
 				curr_dso->long_name = dso->long_name;
 				curr_dso->long_name_len = dso->long_name_len;
 				curr_map = map__new2(start, curr_dso,
-						     map->type);
+						     map->type, map->timestamp);
 				if (curr_map == NULL) {
 					dso__delete(curr_dso);
 					goto out_elf_end;
