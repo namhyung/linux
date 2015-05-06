@@ -28,6 +28,7 @@ perf-y += thread-comm.o
 perf-y += thread-mg-share.o
 perf-y += thread-lookup-time.o
 perf-y += thread-mg-time.o
+perf-y += thread-map-time.o
 perf-y += switch-tracking.o
 perf-y += keep-tracking.o
 perf-y += code-reading.o

@@ -183,6 +183,10 @@ static struct test {
 		.func = test__thread_mg_time,
 	},
 	{
+		.desc = "Test thread map lookup with time",
+		.func = test__thread_map_lookup_time,
+	},
+	{
 		.func = NULL,
 	},
 };
