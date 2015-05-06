@@ -794,6 +794,41 @@ void maps__insert(struct maps *maps, struct map *map)
 	pthread_rwlock_unlock(&maps->lock);
 }
 
+static void __maps__insert_by_time(struct maps *maps, struct map *map)
+{
+	struct rb_node **p = &maps->entries.rb_node;
+	struct rb_node *parent = NULL;
+	const u64 ip = map->start;
+	const u64 timestamp = map->timestamp;
+	struct map *m;
+
+	while (*p != NULL) {
+		parent = *p;
+		m = rb_entry(parent, struct map, rb_node);
+		if (ip < m->start)
+			p = &(*p)->rb_left;
+		else if (ip > m->start)
+			p = &(*p)->rb_right;
+		else if (timestamp > m->timestamp)
+			p = &(*p)->rb_left;
+		else if (timestamp < m->timestamp)
+			p = &(*p)->rb_right;
+		else
+			BUG_ON(1);
+	}
+
+	rb_link_node(&map->rb_node, parent, p);
+	rb_insert_color(&map->rb_node, &maps->entries);
+	map__get(map);
+}
+
+void maps__insert_by_time(struct maps *maps, struct map *map)
+{
+	pthread_rwlock_wrlock(&maps->lock);
+	__maps__insert_by_time(maps, map);
+	pthread_rwlock_unlock(&maps->lock);
+}
+
 static void __maps__remove(struct maps *maps, struct map *map)
 {
 	rb_erase_init(&map->rb_node, &maps->entries);
@@ -830,6 +865,35 @@ struct map *maps__find(struct maps *maps, u64 ip)
 out:
 	pthread_rwlock_unlock(&maps->lock);
 	return m;
+}
+
+struct map *maps__find_by_time(struct maps *maps, u64 ip, u64 timestamp)
+{
+	struct rb_node **p;
+	struct rb_node *parent = NULL;
+	struct map *m;
+	struct map *best = NULL;
+
+	pthread_rwlock_rdlock(&maps->lock);
+
+	p = &maps->entries.rb_node;
+	while (*p != NULL) {
+		parent = *p;
+		m = rb_entry(parent, struct map, rb_node);
+		if (ip < m->start)
+			p = &(*p)->rb_left;
+		else if (ip >= m->end)
+			p = &(*p)->rb_right;
+		else if (timestamp >= m->timestamp) {
+			if (!best || best->timestamp < m->timestamp)
+				best = m;
+			p = &(*p)->rb_left;
+		} else
+			p = &(*p)->rb_right;
+	}
+
+	pthread_rwlock_unlock(&maps->lock);
+	return best;
 }
 
 struct map *maps__first(struct maps *maps)

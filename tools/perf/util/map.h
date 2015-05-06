@@ -10,6 +10,8 @@
 #include <stdbool.h>
 #include <linux/types.h>
 
+#include "perf.h"  /* for perf_has_index */
+
 enum map_type {
 	MAP__FUNCTION = 0,
 	MAP__VARIABLE,
@@ -185,8 +187,10 @@ void map__reloc_vmlinux(struct map *map);
 size_t __map_groups__fprintf_maps(struct map_groups *mg, enum map_type type,
 				  FILE *fp);
 void maps__insert(struct maps *maps, struct map *map);
+void maps__insert_by_time(struct maps *maps, struct map *map);
 void maps__remove(struct maps *maps, struct map *map);
 struct map *maps__find(struct maps *maps, u64 addr);
+struct map *maps__find_by_time(struct maps *maps, u64 addr, u64 timestamp);
 struct map *maps__first(struct maps *maps);
 struct map *map__next(struct map *map);
 void map_groups__init(struct map_groups *mg, struct machine *machine);
@@ -204,6 +208,17 @@ static inline void map_groups__insert(struct map_groups *mg, struct map *map)
 	map->groups = mg;
 }
 
+static inline void map_groups__insert_by_time(struct map_groups *mg,
+					      struct map *map)
+{
+	if (perf_has_index)
+		maps__insert_by_time(&mg->maps[map->type], map);
+	else
+		maps__insert(&mg->maps[map->type], map);
+
+	map->groups = mg;
+}
+
 static inline void map_groups__remove(struct map_groups *mg, struct map *map)
 {
 	maps__remove(&mg->maps[map->type], map);
@@ -213,6 +228,16 @@ static inline struct map *map_groups__find(struct map_groups *mg,
 					   enum map_type type, u64 addr)
 {
 	return maps__find(&mg->maps[type], addr);
+}
+
+static inline struct map *map_groups__find_by_time(struct map_groups *mg,
+						   enum map_type type, u64 addr,
+						   u64 timestamp)
+{
+	if (!perf_has_index)
+		return maps__find(&mg->maps[type], addr);
+
+	return maps__find_by_time(&mg->maps[type], addr, timestamp);
 }
 
 static inline struct map *map_groups__first(struct map_groups *mg,
