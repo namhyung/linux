@@ -356,6 +356,11 @@ OPTIONS
 --multi-thread::
 	Speed up report by parallelizing sample processing using multi-thread.
 
+--num-thread::
+	Number of thread to process sample events.  Should be greater than or
+	equals to 2.  Default is number of cpus on the system unless
+	report.num-thread config variable is set.
+
 include::callchain-overhead-calculation.txt[]
 
 SEE ALSO
