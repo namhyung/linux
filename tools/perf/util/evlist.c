@@ -1505,6 +1505,17 @@ int perf_evlist__start_workload(struct perf_evlist *evlist)
 	return 0;
 }
 
+int perf_evlist__start_workload_ex(struct perf_evlist *evlist,
+				   workload_callback_t callback, void *arg)
+{
+	int ret = callback(evlist, arg);
+
+	if (ret == 0)
+		ret = perf_evlist__start_workload(evlist);
+
+	return ret;
+}
+
 int perf_evlist__parse_sample(struct perf_evlist *evlist, union perf_event *event,
 			      struct perf_sample *sample)
 {

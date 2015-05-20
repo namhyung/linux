@@ -123,6 +123,10 @@ int perf_evlist__prepare_workload(struct perf_evlist *evlist,
 						     void *ucontext));
 int perf_evlist__start_workload(struct perf_evlist *evlist);
 
+typedef int (*workload_callback_t)(struct perf_evlist *evlist, void *arg);
+int perf_evlist__start_workload_ex(struct perf_evlist *evlist,
+				   workload_callback_t callback, void *arg);
+
 struct option;
 
 int __perf_evlist__parse_mmap_pages(unsigned int *mmap_pages, const char *str);
