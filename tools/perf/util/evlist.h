@@ -126,6 +126,8 @@ int perf_evlist__start_workload(struct perf_evlist *evlist);
 typedef int (*workload_callback_t)(struct perf_evlist *evlist, void *arg);
 int perf_evlist__start_workload_ex(struct perf_evlist *evlist,
 				   workload_callback_t callback, void *arg);
+/* workload_callbacks */
+int perf_evlist__create_workload_thread(struct perf_evlist *evlist, void *arg);
 
 struct option;
 

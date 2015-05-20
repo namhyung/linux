@@ -1516,6 +1516,20 @@ int perf_evlist__start_workload_ex(struct perf_evlist *evlist,
 	return ret;
 }
 
+int perf_evlist__create_workload_thread(struct perf_evlist *evlist, void *arg)
+{
+	struct machine *machine = arg;
+	int pid = evlist->workload.pid;
+	struct thread *thread;
+
+	thread = machine__findnew_thread(machine, pid, pid);
+	if (thread == NULL)
+		return -1;
+
+	thread__set_comm(thread, program_invocation_short_name, 0);
+	return 0;
+}
+
 int perf_evlist__parse_sample(struct perf_evlist *evlist, union perf_event *event,
 			      struct perf_sample *sample)
 {

@@ -2282,7 +2282,9 @@ static int trace__run(struct trace *trace, int argc, const char **argv)
 		perf_evlist__enable(evlist);
 
 	if (forks)
-		perf_evlist__start_workload(evlist);
+		perf_evlist__start_workload_ex(evlist,
+					       perf_evlist__create_workload_thread,
+					       trace->host);
 
 	trace->multiple_threads = evlist->threads->map[0] == -1 ||
 				  evlist->threads->nr > 1 ||
