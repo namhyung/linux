@@ -218,7 +218,7 @@ static int record__auxtrace_read_snapshot_all(struct record *rec)
 
 	for (i = 0; i < rec->evlist->nr_mmaps; i++) {
 		struct auxtrace_mmap *mm =
-				&rec->evlist->mmap[i].auxtrace_mmap;
+				&rec->evlist->auxtrace_mmap[i];
 
 		if (!mm->base)
 			continue;
@@ -406,7 +406,7 @@ static int record__mmap_read_all(struct record *rec)
 	int rc = 0;
 
 	for (i = 0; i < rec->evlist->nr_mmaps; i++) {
-		struct auxtrace_mmap *mm = &rec->evlist->mmap[i].auxtrace_mmap;
+		struct auxtrace_mmap *mm = &rec->evlist->auxtrace_mmap[i];
 
 		if (rec->evlist->mmap[i].base) {
 			if (record__mmap_read(rec, i) != 0) {

@@ -725,9 +725,12 @@ union perf_event *perf_evlist__mmap_read(struct perf_evlist *evlist, int idx)
 	return event;
 }
 
-static bool perf_mmap__empty(struct perf_mmap *md)
+static bool perf_evlist__mmap_empty(struct perf_evlist *evlist, int idx)
 {
-	return perf_mmap__read_head(md) == md->prev && !md->auxtrace_mmap.base;
+	struct perf_mmap *md = &evlist->mmap[idx];
+
+	return perf_mmap__read_head(md) == md->prev &&
+		evlist->auxtrace_mmap[idx].base == NULL;
 }
 
 static void perf_evlist__mmap_get(struct perf_evlist *evlist, int idx)
@@ -753,7 +756,7 @@ void perf_evlist__mmap_consume(struct perf_evlist *evlist, int idx)
 		perf_mmap__write_tail(md, old);
 	}
 
-	if (atomic_read(&md->refcnt) == 1 && perf_mmap__empty(md))
+	if (atomic_read(&md->refcnt) == 1 && perf_evlist__mmap_empty(evlist, idx))
 		perf_evlist__mmap_put(evlist, idx);
 }
 
@@ -794,7 +797,7 @@ static void __perf_evlist__munmap(struct perf_evlist *evlist, int idx)
 		evlist->mmap[idx].base = NULL;
 		atomic_set(&evlist->mmap[idx].refcnt, 0);
 	}
-	auxtrace_mmap__munmap(&evlist->mmap[idx].auxtrace_mmap);
+	auxtrace_mmap__munmap(&evlist->auxtrace_mmap[idx]);
 }
 
 void perf_evlist__munmap(struct perf_evlist *evlist)
@@ -816,7 +819,15 @@ static int perf_evlist__alloc_mmap(struct perf_evlist *evlist)
 	if (cpu_map__empty(evlist->cpus))
 		evlist->nr_mmaps = thread_map__nr(evlist->threads);
 	evlist->mmap = zalloc(evlist->nr_mmaps * sizeof(struct perf_mmap));
-	return evlist->mmap != NULL ? 0 : -ENOMEM;
+	if (evlist->mmap == NULL)
+		return -ENOMEM;
+	evlist->auxtrace_mmap = calloc(evlist->nr_mmaps,
+				       sizeof(struct auxtrace_mmap));
+	if (evlist->auxtrace_mmap != NULL) {
+		zfree(&evlist->mmap);
+		return -ENOMEM;
+	}
+	return 0;
 }
 
 struct mmap_params {
@@ -853,10 +864,6 @@ static int __perf_evlist__mmap(struct perf_evlist *evlist, int idx,
 		return -1;
 	}
 
-	if (auxtrace_mmap__mmap(&evlist->mmap[idx].auxtrace_mmap,
-				&mp->auxtrace_mp, evlist->mmap[idx].base, fd))
-		return -1;
-
 	return 0;
 }
 
@@ -877,6 +884,11 @@ static int perf_evlist__mmap_per_evsel(struct perf_evlist *evlist, int idx,
 		if (*output == -1) {
 			*output = fd;
 			if (__perf_evlist__mmap(evlist, idx, mp, *output) < 0)
+				return -1;
+
+			if (auxtrace_mmap__mmap(&evlist->auxtrace_mmap[idx],
+						&mp->auxtrace_mp,
+						evlist->mmap[idx].base, fd))
 				return -1;
 		} else {
 			if (ioctl(fd, PERF_EVENT_IOC_SET_OUTPUT, *output) != 0)

@@ -30,7 +30,6 @@ struct perf_mmap {
 	int		 mask;
 	atomic_t	 refcnt;
 	u64		 prev;
-	struct auxtrace_mmap auxtrace_mmap;
 	char		 event_copy[PERF_SAMPLE_MAX_SIZE] __attribute__((aligned(8)));
 };
 
@@ -51,6 +50,7 @@ struct perf_evlist {
 	} workload;
 	struct fdarray	 pollfd;
 	struct perf_mmap *mmap;
+	struct auxtrace_mmap *auxtrace_mmap;
 	struct thread_map *threads;
 	struct cpu_map	  *cpus;
 	struct perf_evsel *selected;
