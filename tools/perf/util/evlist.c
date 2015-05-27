@@ -836,8 +836,8 @@ struct mmap_params {
 	struct auxtrace_mmap_params auxtrace_mp;
 };
 
-static int __perf_evlist__mmap(struct perf_evlist *evlist, int idx,
-			       struct mmap_params *mp, int fd)
+static int perf_mmap__mmap(struct perf_mmap *desc,
+			   struct mmap_params *mp, int fd)
 {
 	/*
 	 * The last one will be done at perf_evlist__mmap_consume(), so that we
@@ -852,19 +852,24 @@ static int __perf_evlist__mmap(struct perf_evlist *evlist, int idx,
 	 * evlist layer can't just drop it when filtering events in
 	 * perf_evlist__filter_pollfd().
 	 */
-	atomic_set(&evlist->mmap[idx].refcnt, 2);
-	evlist->mmap[idx].prev = 0;
-	evlist->mmap[idx].mask = perf_evlist__mmap_mask(mp->len);
-	evlist->mmap[idx].base = mmap(NULL, mp->len, mp->prot,
+	atomic_set(&desc->refcnt, 2);
+	desc->prev = 0;
+	desc->mask = perf_evlist__mmap_mask(mp->len);
+	desc->base = mmap(NULL, mp->len, mp->prot,
 				      MAP_SHARED, fd, 0);
-	if (evlist->mmap[idx].base == MAP_FAILED) {
+	if (desc->base == MAP_FAILED) {
 		pr_debug2("failed to mmap perf event ring buffer, error %d\n",
 			  errno);
-		evlist->mmap[idx].base = NULL;
+		desc->base = NULL;
 		return -1;
 	}
 
 	return 0;
+}
+
+struct perf_mmap *perf_evlist__mmap_desc(struct perf_evlist *evlist, int idx)
+{
+	return &evlist->mmap[idx];
 }
 
 static int perf_evlist__mmap_per_evsel(struct perf_evlist *evlist, int idx,
@@ -875,6 +880,7 @@ static int perf_evlist__mmap_per_evsel(struct perf_evlist *evlist, int idx,
 
 	evlist__for_each(evlist, evsel) {
 		int fd;
+		struct perf_mmap *desc = perf_evlist__mmap_desc(evlist, idx);
 
 		if (evsel->system_wide && thread)
 			continue;
@@ -883,7 +889,8 @@ static int perf_evlist__mmap_per_evsel(struct perf_evlist *evlist, int idx,
 
 		if (*output == -1) {
 			*output = fd;
-			if (__perf_evlist__mmap(evlist, idx, mp, *output) < 0)
+			if (perf_mmap__mmap(desc, mp, *output) < 0)
+				return -1;
 				return -1;
 
 			if (auxtrace_mmap__mmap(&evlist->auxtrace_mmap[idx],
