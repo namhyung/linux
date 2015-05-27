@@ -28,6 +28,8 @@
 
 static void perf_evlist__mmap_put(struct perf_evlist *evlist, int idx);
 static void __perf_evlist__munmap(struct perf_evlist *evlist, int idx);
+static size_t perf_evlist__mmap_mask(size_t len);
+static size_t perf_evlist__mmap_len(size_t mask);
 
 #define FD(e, x, y) (*(int *)xyarray__entry(e->fd, x, y))
 #define SID(e, x, y) xyarray__entry(e->sample_id, x, y)
@@ -786,7 +788,9 @@ void __weak auxtrace_mmap_params__set_idx(
 static void __perf_evlist__munmap(struct perf_evlist *evlist, int idx)
 {
 	if (evlist->mmap[idx].base != NULL) {
-		munmap(evlist->mmap[idx].base, evlist->mmap_len);
+		size_t mmap_len = perf_evlist__mmap_len(evlist->mmap[idx].mask);
+
+		munmap(evlist->mmap[idx].base, mmap_len);
 		evlist->mmap[idx].base = NULL;
 		atomic_set(&evlist->mmap[idx].refcnt, 0);
 	}
@@ -816,8 +820,8 @@ static int perf_evlist__alloc_mmap(struct perf_evlist *evlist)
 }
 
 struct mmap_params {
-	int prot;
-	int mask;
+	int	prot;
+	size_t	len;
 	struct auxtrace_mmap_params auxtrace_mp;
 };
 
@@ -839,8 +843,8 @@ static int __perf_evlist__mmap(struct perf_evlist *evlist, int idx,
 	 */
 	atomic_set(&evlist->mmap[idx].refcnt, 2);
 	evlist->mmap[idx].prev = 0;
-	evlist->mmap[idx].mask = mp->mask;
-	evlist->mmap[idx].base = mmap(NULL, evlist->mmap_len, mp->prot,
+	evlist->mmap[idx].mask = perf_evlist__mmap_mask(mp->len);
+	evlist->mmap[idx].base = mmap(NULL, mp->len, mp->prot,
 				      MAP_SHARED, fd, 0);
 	if (evlist->mmap[idx].base == MAP_FAILED) {
 		pr_debug2("failed to mmap perf event ring buffer, error %d\n",
@@ -986,6 +990,21 @@ static size_t perf_evlist__mmap_size(unsigned long pages)
 	return (pages + 1) * page_size;
 }
 
+static size_t perf_evlist__mmap_mask(size_t len)
+{
+	BUG_ON(len <= page_size);
+	BUG_ON((len % page_size) != 0);
+
+	return len - page_size - 1;
+}
+
+static size_t perf_evlist__mmap_len(size_t mask)
+{
+	BUG_ON((mask & page_size) != 0);
+
+	return mask + 1 + page_size;
+}
+
 static long parse_pages_arg(const char *str, unsigned long min,
 			    unsigned long max)
 {
@@ -1091,7 +1110,7 @@ int perf_evlist__mmap_ex(struct perf_evlist *evlist, unsigned int pages,
 	evlist->overwrite = overwrite;
 	evlist->mmap_len = perf_evlist__mmap_size(pages);
 	pr_debug("mmap size %zuB\n", evlist->mmap_len);
-	mp.mask = evlist->mmap_len - page_size - 1;
+	mp.len = evlist->mmap_len;
 
 	auxtrace_mmap_params__init(&mp.auxtrace_mp, evlist->mmap_len,
 				   auxtrace_pages, auxtrace_overwrite);
