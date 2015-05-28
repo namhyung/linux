@@ -766,9 +766,13 @@ int cmd_report(int argc, const char **argv, const char *prefix __maybe_unused)
 	file.force = report.force;
 
 repeat:
+	report.tool.machines = machines__new();
+	if (report.tool.machines == NULL)
+		return -1;
+
 	session = perf_session__new(&file, false, &report.tool);
 	if (session == NULL)
-		return -1;
+		goto error_delete;
 
 	if (report.queue_size) {
 		ordered_events__set_alloc_size(&session->ordered_events,
@@ -883,11 +887,14 @@ repeat:
 	ret = __cmd_report(&report);
 	if (ret == K_SWITCH_INPUT_DATA) {
 		perf_session__delete(session);
+		machines__delete(report.tool.machines);
 		goto repeat;
 	} else
 		ret = 0;
 
 error:
 	perf_session__delete(session);
+error_delete:
+	machines__delete(report.tool.machines);
 	return ret;
 }

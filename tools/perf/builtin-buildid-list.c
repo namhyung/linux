@@ -58,6 +58,8 @@ static int perf_session__list_build_ids(bool force, bool with_hits)
 		.mode  = PERF_DATA_MODE_READ,
 		.force = force,
 	};
+	struct perf_tool *tool = &build_id__mark_dso_hit_ops;
+	int ret = -1;
 
 	symbol__elf_init();
 	/*
@@ -66,9 +68,13 @@ static int perf_session__list_build_ids(bool force, bool with_hits)
 	if (filename__fprintf_build_id(input_name, stdout))
 		goto out;
 
-	session = perf_session__new(&file, false, &build_id__mark_dso_hit_ops);
-	if (session == NULL)
+	tool->machines = machines__new();
+	if (tool->machines == NULL)
 		return -1;
+
+	session = perf_session__new(&file, false, tool);
+	if (session == NULL)
+		goto out_delete;
 
 	/*
 	 * We take all buildids when the file contains AUX area tracing data
@@ -86,9 +92,13 @@ static int perf_session__list_build_ids(bool force, bool with_hits)
 		perf_session__process_events(session);
 
 	perf_session__fprintf_dsos_buildid(session, stdout, dso__skip_buildid, with_hits);
+	ret = 0;
+
 	perf_session__delete(session);
+out_delete:
+	machines__delete(tool->machines);
 out:
-	return 0;
+	return ret;
 }
 
 int cmd_buildid_list(int argc, const char **argv,

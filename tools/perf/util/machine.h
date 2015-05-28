@@ -102,6 +102,9 @@ struct machines {
 void machines__init(struct machines *machines);
 void machines__exit(struct machines *machines);
 
+struct machines *machines__new(void);
+void machines__delete(struct machines *machines);
+
 void machines__process_guests(struct machines *machines,
 			      machine__process_t process, void *data);
 

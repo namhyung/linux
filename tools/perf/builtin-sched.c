@@ -1531,10 +1531,14 @@ static int perf_sched__read_events(struct perf_sched *sched)
 	};
 	int rc = -1;
 
+	sched->tool.machines = machines__new();
+	if (sched->tool.machines == NULL)
+		return -1;
+
 	session = perf_session__new(&file, false, &sched->tool);
 	if (session == NULL) {
 		pr_debug("No Memory for session\n");
-		return -1;
+		goto out_delete_machine;
 	}
 
 	symbol__init(&session->header.env);
@@ -1557,6 +1561,8 @@ static int perf_sched__read_events(struct perf_sched *sched)
 	rc = 0;
 out_delete:
 	perf_session__delete(session);
+out_delete_machine:
+	machines__delete(sched->tool.machines);
 	return rc;
 }
 

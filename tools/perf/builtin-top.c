@@ -933,11 +933,18 @@ static int __cmd_top(struct perf_top *top)
 {
 	struct record_opts *opts = &top->record_opts;
 	pthread_t thread;
-	int ret;
+	int ret = -1;
+	struct perf_tool tool = {
+		.machines = NULL,
+	};
 
-	top->session = perf_session__new(NULL, false, NULL);
-	if (top->session == NULL)
+	tool.machines = machines__new();
+	if (tool.machines == NULL)
 		return -1;
+
+	top->session = perf_session__new(NULL, false, &tool);
+	if (top->session == NULL)
+		goto out_delete_machine;
 
 	machines__set_symbol_filter(&top->session->machines, symbol_filter);
 
@@ -1008,6 +1015,8 @@ out_join:
 out_delete:
 	perf_session__delete(top->session);
 	top->session = NULL;
+out_delete_machine:
+	machines__delete(tool.machines);
 
 	return ret;
 }

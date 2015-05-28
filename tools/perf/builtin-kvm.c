@@ -1053,6 +1053,10 @@ static int read_events(struct perf_kvm_stat *kvm)
 	};
 
 	kvm->tool = eops;
+	kvm->tool.machines = machines__new();
+	if (kvm->tool.machines == NULL)
+		return -1;
+
 	kvm->session = perf_session__new(&file, false, &kvm->tool);
 	if (!kvm->session) {
 		pr_err("Initializing perf session failed\n");
@@ -1381,6 +1385,12 @@ static int kvm_events_live(struct perf_kvm_stat *kvm,
 	if (perf_evlist__create_maps(kvm->evlist, &kvm->opts.target) < 0)
 		usage_with_options(live_usage, live_options);
 
+	kvm->tool.machines = machines__new();
+	if (kvm->tool.machines == NULL) {
+		err = -1;
+		goto out;
+	}
+
 	/*
 	 * perf session
 	 */
@@ -1406,6 +1416,8 @@ out:
 	if (kvm->session)
 		perf_session__delete(kvm->session);
 	kvm->session = NULL;
+	if (kvm->tool.machines)
+		machines__delete(kvm->tool.machines);
 	if (kvm->evlist)
 		perf_evlist__delete(kvm->evlist);
 

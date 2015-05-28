@@ -743,10 +743,17 @@ static int __cmd_diff(void)
 	int ret = -EINVAL, i;
 
 	data__for_each_file(i, d) {
+		ret = -ENOMEM;
+
+		tool.machines = machines__new();
+		if (tool.machines == NULL) {
+			pr_err("Failed to allocate machines\n");
+			goto out_delete;
+		}
+
 		d->session = perf_session__new(&d->file, false, &tool);
 		if (!d->session) {
 			pr_err("Failed to open %s\n", d->file.path);
-			ret = -1;
 			goto out_delete;
 		}
 
@@ -763,8 +770,13 @@ static int __cmd_diff(void)
 
  out_delete:
 	data__for_each_file(i, d) {
-		if (d->session)
+		if (d->session) {
+			struct machines *machines = &d->session->machines;
+
 			perf_session__delete(d->session);
+			if (machines)
+				machines__delete(machines);
+		}
 
 		data__free(d);
 	}

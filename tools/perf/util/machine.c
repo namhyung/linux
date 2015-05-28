@@ -163,6 +163,21 @@ void machines__exit(struct machines *machines)
 	/* XXX exit guest */
 }
 
+struct machines *machines__new(void)
+{
+	struct machines *machines = zalloc(sizeof(*machines));
+
+	if (machines)
+		machines__init(machines);
+	return machines;
+}
+
+void machines__delete(struct machines *machines)
+{
+	machines__exit(machines);
+	free(machines);
+}
+
 struct machine *machines__add(struct machines *machines, pid_t pid,
 			      const char *root_dir)
 {

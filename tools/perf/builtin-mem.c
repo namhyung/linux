@@ -126,11 +126,15 @@ static int report_raw_events(struct perf_mem *mem)
 	};
 	int err = -EINVAL;
 	int ret;
-	struct perf_session *session = perf_session__new(&file, false,
-							 &mem->tool);
+	struct perf_session *session;
 
-	if (session == NULL)
+	mem->tool.machines = machines__new();
+	if (mem->tool.machines == NULL)
 		return -1;
+
+	session = perf_session__new(&file, false, &mem->tool);
+	if (session == NULL)
+		goto out_delete_machine;
 
 	if (mem->cpu_list) {
 		ret = perf_session__cpu_bitmap(session, mem->cpu_list,
@@ -152,6 +156,8 @@ static int report_raw_events(struct perf_mem *mem)
 
 out_delete:
 	perf_session__delete(session);
+out_delete_machine:
+	machines__delete(mem->tool.machines);
 	return err;
 }
 

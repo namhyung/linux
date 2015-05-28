@@ -26,16 +26,28 @@ static int __cmd_evlist(const char *file_name, struct perf_attr_details *details
 		.mode = PERF_DATA_MODE_READ,
 		.force = details->force,
 	};
+	struct perf_tool tool = {
+		.machines = NULL,
+	};
+	int ret = -1;
 
-	session = perf_session__new(&file, 0, NULL);
-	if (session == NULL)
+	tool.machines = machines__new();
+	if (tool.machines == NULL)
 		return -1;
+
+	session = perf_session__new(&file, 0, &tool);
+	if (session == NULL)
+		goto out;
 
 	evlist__for_each(session->evlist, pos)
 		perf_evsel__fprintf(pos, details, stdout);
 
+	ret = 0;
+
 	perf_session__delete(session);
-	return 0;
+out:
+	machines__delete(tool.machines);
+	return ret;
 }
 
 int cmd_evlist(int argc, const char **argv, const char *prefix __maybe_unused)

@@ -1388,21 +1388,27 @@ int find_scripts(char **scripts_array, char **scripts_path_array)
 		.path = input_name,
 		.mode = PERF_DATA_MODE_READ,
 	};
+	struct perf_tool tool = {
+		.machines = NULL,
+	};
 	char *temp;
-	int i = 0;
+	int i = -1;
 
-	session = perf_session__new(&file, false, NULL);
-	if (!session)
+	tool.machines = machines__new();
+	if (tool.machines == NULL)
 		return -1;
+
+	session = perf_session__new(&file, false, &tool);
+	if (!session)
+		goto out;
 
 	snprintf(scripts_path, MAXPATHLEN, "%s/scripts", perf_exec_path());
 
 	scripts_dir = opendir(scripts_path);
-	if (!scripts_dir) {
-		perf_session__delete(session);
-		return -1;
-	}
+	if (!scripts_dir)
+		goto out_session;
 
+	i = 0;
 	for_each_lang(scripts_path, scripts_dir, lang_dirent, lang_next) {
 		snprintf(lang_path, MAXPATHLEN, "%s/%s", scripts_path,
 			 lang_dirent.d_name);
@@ -1440,7 +1446,11 @@ int find_scripts(char **scripts_array, char **scripts_path_array)
 	}
 
 	closedir(scripts_dir);
+
+out_session:
 	perf_session__delete(session);
+out:
+	machines__delete(tool.machines);
 	return i;
 }
 
@@ -1802,9 +1812,13 @@ int cmd_script(int argc, const char **argv, const char *prefix __maybe_unused)
 	if (!script_name)
 		setup_pager();
 
+	script.tool.machines = machines__new();
+	if (script.tool.machines == NULL)
+		return -1;
+
 	session = perf_session__new(&file, false, &script.tool);
 	if (session == NULL)
-		return -1;
+		goto out_delete_machine;
 
 	if (header || header_only) {
 		perf_session__fprintf_info(session, stdout, show_full_info);
@@ -1890,6 +1904,8 @@ int cmd_script(int argc, const char **argv, const char *prefix __maybe_unused)
 
 out_delete:
 	perf_session__delete(session);
+out_delete_machine:
+	machines__delete(script.tool.machines);
 
 	if (script_started)
 		cleanup_scripting();

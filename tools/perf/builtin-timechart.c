@@ -1603,12 +1603,16 @@ static int __cmd_timechart(struct timechart *tchart, const char *output_name)
 		.force = tchart->force,
 	};
 
-	struct perf_session *session = perf_session__new(&file, false,
-							 &tchart->tool);
+	struct perf_session *session;
 	int ret = -EINVAL;
 
-	if (session == NULL)
+	tchart->tool.machines = machines__new();
+	if (tchart->tool.machines == NULL)
 		return -1;
+
+	session = perf_session__new(&file, false, &tchart->tool);
+	if (session == NULL)
+		goto out_delete_machine;
 
 	symbol__init(&session->header.env);
 
@@ -1640,6 +1644,8 @@ static int __cmd_timechart(struct timechart *tchart, const char *output_name)
 		(tchart->last_time - tchart->first_time) / 1000000000.0, output_name);
 out_delete:
 	perf_session__delete(session);
+out_delete_machine:
+	machines__delete(tchart->tool.machines);
 	return ret;
 }
 

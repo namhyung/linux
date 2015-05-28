@@ -1908,6 +1908,9 @@ int cmd_kmem(int argc, const char **argv, const char *prefix __maybe_unused)
 
 	file.path = input_name;
 
+	perf_kmem.machines = machines__new();
+	if (perf_kmem.machines == NULL)
+		return -1;
 	kmem_session = session = perf_session__new(&file, false, &perf_kmem);
 	if (session == NULL)
 		return -1;
@@ -1963,6 +1966,7 @@ int cmd_kmem(int argc, const char **argv, const char *prefix __maybe_unused)
 
 out_delete:
 	perf_session__delete(session);
+	machines__delete(perf_kmem.machines);
 
 	return ret;
 }
