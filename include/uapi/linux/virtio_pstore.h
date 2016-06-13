@@ -1,9 +1,6 @@
-#ifndef _LINUX_VIRTIO_IDS_H
-#define _LINUX_VIRTIO_IDS_H
-/*
- * Virtio IDs
- *
- * This header is BSD licensed so anyone can use the definitions to implement
+#ifndef _LINUX_VIRTIO_PSTORE_H
+#define _LINUX_VIRTIO_PSTORE_H
+/* This header is BSD licensed so anyone can use the definitions to implement
  * compatible drivers/servers.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -28,19 +25,50 @@
  * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  * SUCH DAMAGE. */
+#include <linux/types.h>
+#include <linux/virtio_types.h>
 
-#define VIRTIO_ID_NET		1 /* virtio net */
-#define VIRTIO_ID_BLOCK		2 /* virtio block */
-#define VIRTIO_ID_CONSOLE	3 /* virtio console */
-#define VIRTIO_ID_RNG		4 /* virtio rng */
-#define VIRTIO_ID_BALLOON	5 /* virtio balloon */
-#define VIRTIO_ID_RPMSG		7 /* virtio remote processor messaging */
-#define VIRTIO_ID_SCSI		8 /* virtio scsi */
-#define VIRTIO_ID_9P		9 /* 9p virtio console */
-#define VIRTIO_ID_RPROC_SERIAL 11 /* virtio remoteproc serial link */
-#define VIRTIO_ID_CAIF	       12 /* Virtio caif */
-#define VIRTIO_ID_GPU          16 /* virtio GPU */
-#define VIRTIO_ID_INPUT        18 /* virtio input */
-#define VIRTIO_ID_PSTORE       22 /* virtio pstore */
+#define VIRTIO_PSTORE_CMD_NULL   0
+#define VIRTIO_PSTORE_CMD_OPEN   1
+#define VIRTIO_PSTORE_CMD_READ   2
+#define VIRTIO_PSTORE_CMD_WRITE  3
+#define VIRTIO_PSTORE_CMD_ERASE  4
+#define VIRTIO_PSTORE_CMD_CLOSE  5
 
-#endif /* _LINUX_VIRTIO_IDS_H */
+#define VIRTIO_PSTORE_TYPE_UNKNOWN  0
+#define VIRTIO_PSTORE_TYPE_DMESG    1
+
+#define VIRTIO_PSTORE_FL_COMPRESSED  1
+
+struct virtio_pstore_req {
+	__le16		cmd;
+	__le16		type;
+	__le32		flags;
+	__le64		id;
+	__le32		count;
+	__le32		reserved;
+};
+
+struct virtio_pstore_res {
+	__le16		cmd;
+	__le16		type;
+	__le32		ret;
+};
+
+struct virtio_pstore_fileinfo {
+	__le64		id;
+	__le32		count;
+	__le16		type;
+	__le16		unused;
+	__le32		flags;
+	__le32		len;
+	__le64		time_sec;
+	__le32		time_nsec;
+	__le32		reserved;
+};
+
+struct virtio_pstore_config {
+	__le32		bufsize;
+};
+
+#endif /* _LINUX_VIRTIO_PSTORE_H */
