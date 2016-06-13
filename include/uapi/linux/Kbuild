@@ -449,6 +449,7 @@ header-y += virtio_ids.h
 header-y += virtio_input.h
 header-y += virtio_net.h
 header-y += virtio_pci.h
+header-y += virtio_pstore.h
 header-y += virtio_ring.h
 header-y += virtio_rng.h
 header-y += virtio_scsi.h

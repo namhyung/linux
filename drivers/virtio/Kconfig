@@ -58,6 +58,16 @@ config VIRTIO_INPUT
 
 	 If unsure, say M.
 
+config VIRTIO_PSTORE
+	tristate "Virtio pstore driver"
+	depends on VIRTIO
+	depends on PSTORE
+	---help---
+	 This driver supports virtio pstore devices to save/restore
+	 panic and oops messages on the host.
+
+	 If unsure, say M.
+
  config VIRTIO_MMIO
 	tristate "Platform bus driver for memory mapped virtio devices"
 	depends on HAS_IOMEM && HAS_DMA
