@@ -37,8 +37,11 @@
 
 #define VIRTIO_PSTORE_TYPE_UNKNOWN  0
 #define VIRTIO_PSTORE_TYPE_DMESG    1
+#define VIRTIO_PSTORE_TYPE_CONSOLE  2
 
 #define VIRTIO_PSTORE_FL_COMPRESSED  1
+
+#define VIRTIO_PSTORE_CONFIG_FL_CONSOLE  (1 << 0)
 
 struct virtio_pstore_req {
 	__virtio16		cmd;
@@ -69,6 +72,7 @@ struct virtio_pstore_fileinfo {
 
 struct virtio_pstore_config {
 	__virtio32		bufsize;
+	__virtio32		flags;
 };
 
 #endif /* _LINUX_VIRTIO_PSTORE_H */

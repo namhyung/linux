@@ -33,6 +33,7 @@ struct type_table {
 	u16 virtio;
 } type_table[] = {
 	TYPE_TABLE_ENTRY(DMESG),
+	TYPE_TABLE_ENTRY(CONSOLE),
 };
 
 #undef TYPE_TABLE_ENTRY
@@ -276,7 +277,8 @@ static int virt_pstore_init(struct virtio_pstore *vps)
 	psinfo->read  = virt_pstore_read;
 	psinfo->erase = virt_pstore_erase;
 	psinfo->write = virt_pstore_write;
-	psinfo->flags = PSTORE_FLAGS_DMESG;
+	/* preserve flags from config */
+	psinfo->flags |= PSTORE_FLAGS_DMESG;
 
 	psinfo->data  = vps;
 	spin_lock_init(&psinfo->buf_lock);
@@ -313,10 +315,15 @@ static int virtpstore_init_vqs(struct virtio_pstore *vps)
 static void virtpstore_init_config(struct virtio_pstore *vps)
 {
 	u32 bufsize;
+	u32 flags;
 
 	virtio_cread(vps->vdev, struct virtio_pstore_config, bufsize, &bufsize);
+	virtio_cread(vps->vdev, struct virtio_pstore_config, flags, &flags);
 
 	vps->pstore.bufsize = PAGE_ALIGN(bufsize);
+
+	if (flags & VIRTIO_PSTORE_CONFIG_FL_CONSOLE)
+		vps->pstore.flags |= PSTORE_FLAGS_CONSOLE | PSTORE_FLAGS_ASYNC;
 }
 
 static void virtpstore_confirm_config(struct virtio_pstore *vps)
