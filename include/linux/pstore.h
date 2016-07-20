@@ -52,6 +52,7 @@ struct pstore_info {
 	spinlock_t	buf_lock;	/* serialize access to 'buf' */
 	char		*buf;
 	size_t		bufsize;
+	size_t		bufpos;
 	struct mutex	read_mutex;	/* serialize open/read/close */
 	int		flags;
 	int		(*open)(struct pstore_info *psi);
@@ -79,8 +80,11 @@ struct pstore_info {
 #define PSTORE_FLAGS_FTRACE	(1 << 2)
 #define PSTORE_FLAGS_PMSG	(1 << 3)
 
+#define PSTORE_FLAGS_ASYNC      (1 << 30)
+
 extern int pstore_register(struct pstore_info *);
 extern void pstore_unregister(struct pstore_info *);
 extern bool pstore_cannot_block_path(enum kmsg_dump_reason reason);
+extern void *pstore_get_buf(struct pstore_info *);
 
 #endif /*_LINUX_PSTORE_H*/

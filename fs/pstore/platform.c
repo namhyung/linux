@@ -150,6 +150,27 @@ bool pstore_cannot_block_path(enum kmsg_dump_reason reason)
 }
 EXPORT_SYMBOL_GPL(pstore_cannot_block_path);
 
+static void *pstore_prepare_buf(struct pstore_info *psi, size_t len)
+{
+	if (psi->bufpos + len > psi->bufsize ||
+	    (psi->flags & PSTORE_FLAGS_ASYNC) == 0)
+		psi->bufpos = 0;
+
+	return psi->buf + psi->bufpos;
+}
+
+static void pstore_update_buf(struct pstore_info *psi, size_t len)
+{
+	if (psi->flags & PSTORE_FLAGS_ASYNC)
+		psi->bufpos += len;
+}
+
+void *pstore_get_buf(struct pstore_info *psi)
+{
+	return psi->buf + psi->bufpos;
+}
+EXPORT_SYMBOL_GPL(pstore_get_buf);
+
 #ifdef CONFIG_PSTORE_ZLIB_COMPRESS
 /* Derived from logfs_compress() */
 static int compress_zlib(const void *in, void *out, size_t inlen, size_t outlen)
@@ -455,18 +476,21 @@ static size_t copy_kmsg_to_buffer(int hsize, size_t len)
 {
 	size_t total_len;
 	size_t diff;
+	void *dst;
 
 	total_len = hsize + len;
+	dst = pstore_prepare_buf(psinfo, total_len);
 
 	if (total_len > psinfo->bufsize) {
 		diff = total_len - psinfo->bufsize + hsize;
-		memcpy(psinfo->buf, big_oops_buf, hsize);
-		memcpy(psinfo->buf + hsize, big_oops_buf + diff,
+		memcpy(dst, big_oops_buf, hsize);
+		memcpy(dst + hsize, big_oops_buf + diff,
 					psinfo->bufsize - hsize);
 		total_len = psinfo->bufsize;
 	} else
-		memcpy(psinfo->buf, big_oops_buf, total_len);
+		memcpy(dst, big_oops_buf, total_len);
 
+	pstore_update_buf(psinfo, total_len);
 	return total_len;
 }
 
@@ -500,7 +524,7 @@ static void pstore_dump(struct kmsg_dumper *dumper,
 	}
 	oopscount++;
 	while (total < kmsg_bytes) {
-		char *dst;
+		char *dst, *buf;
 		unsigned long size;
 		int hsize;
 		int zipped_len = -1;
@@ -514,6 +538,7 @@ static void pstore_dump(struct kmsg_dumper *dumper,
 		} else {
 			dst = psinfo->buf;
 			size = psinfo->bufsize;
+			psinfo->bufpos = 0;
 		}
 
 		hsize = sprintf(dst, "%s#%d Part%u\n", why, oopscount, part);
@@ -524,8 +549,9 @@ static void pstore_dump(struct kmsg_dumper *dumper,
 			break;
 
 		if (big_oops_buf && is_locked) {
-			zipped_len = pstore_compress(dst, psinfo->buf,
-						hsize + len, psinfo->bufsize);
+			buf = pstore_prepare_buf(psinfo, hsize + len);
+			zipped_len = pstore_compress(dst, buf, hsize + len,
+						psinfo->bufsize - psinfo->bufpos);
 
 			if (zipped_len > 0) {
 				compressed = true;
@@ -543,6 +569,7 @@ static void pstore_dump(struct kmsg_dumper *dumper,
 			pstore_new_entry = 1;
 
 		total += total_len;
+		pstore_update_buf(psinfo, total_len);
 		part++;
 	}
 	if (is_locked)
@@ -573,6 +600,7 @@ static void pstore_console_write(struct console *con, const char *s, unsigned c)
 
 	while (s < e) {
 		unsigned long flags;
+		void *dst;
 		u64 id;
 
 		if (c > psinfo->bufsize)
@@ -584,8 +612,10 @@ static void pstore_console_write(struct console *con, const char *s, unsigned c)
 		} else {
 			spin_lock_irqsave(&psinfo->buf_lock, flags);
 		}
-		memcpy(psinfo->buf, s, c);
+		dst = pstore_prepare_buf(psinfo, c);
+		memcpy(dst, s, c);
 		psinfo->write(PSTORE_TYPE_CONSOLE, 0, &id, 0, 0, 0, c, psinfo);
+		pstore_update_buf(psinfo, c);
 		spin_unlock_irqrestore(&psinfo->buf_lock, flags);
 		s += c;
 		c = e - s;
@@ -619,8 +649,8 @@ static int pstore_write_compat(enum pstore_type_id type,
 			       bool compressed, size_t size,
 			       struct pstore_info *psi)
 {
-	return psi->write_buf(type, reason, id, part, psinfo->buf, compressed,
-			     size, psi);
+	return psi->write_buf(type, reason, id, part, pstore_get_buf(psinfo),
+			      compressed, size, psi);
 }
 
 /*

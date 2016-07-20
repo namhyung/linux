@@ -259,7 +259,7 @@ static int efi_pstore_write(enum pstore_type_id type,
 
 	efivar_entry_set_safe(efi_name, vendor, PSTORE_EFI_ATTRIBUTES,
 			      !pstore_cannot_block_path(reason),
-			      size, psi->buf);
+			      size, pstore_get_buf(psi));
 
 	if (reason == KMSG_DUMP_OOPS)
 		efivar_run_worker();
